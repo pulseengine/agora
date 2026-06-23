@@ -1,0 +1,121 @@
+artifacts:
+  # Architecture decisions, grounded in three deep-research runs (2026-06).
+  - id: AD-AGORA-001
+    type: design-decision
+    title: agora is a new project, not a rivet extension
+    status: accepted
+    description: >
+      agora is a separate project that SYNCS coordination facts INTO rivet for the
+      record, rather than living inside rivet.
+    rationale: >
+      rivet is already overloaded (CLI + graph + schemas + MCP + compliance);
+      overloading it with a live bus couples two concerns and risks the durable
+      record. Separation keeps rivet lean and lets the channel evolve independently.
+    tags: [architecture]
+    links:
+      - type: satisfies
+        target: REQ-AGORA-002
+
+  - id: AD-AGORA-002
+    type: design-decision
+    title: The channel is a distributed transport, not MCP
+    status: accepted
+    description: >
+      The channel must be a networked transport layer; MCP stays the local
+      agent<->tool seam only.
+    rationale: >
+      MCP's single-client request/response model cannot express many-to-many
+      pub/sub; two agents each have their own local rivet MCP with nothing between
+      them. Forcing MCP into the bus role misuses the protocol.
+    tags: [architecture]
+    links:
+      - type: satisfies
+        target: REQ-AGORA-001
+
+  - id: AD-AGORA-003
+    type: design-decision
+    title: Durable spine is native NATS/JetStream, not wasm
+    status: accepted
+    description: >
+      The durable spine is an irreducible native trust base (NATS/JetStream),
+      owned consciously; wasm carries the logic, not the transport.
+    rationale: >
+      wasi:messaging explicitly disclaims persistence/ack/guaranteed-delivery and
+      wRPC is RPC not pub/sub; even wasmCloud's transport providers are native.
+      Reimplementing durable fan-out in wasm reinvents NATS with less maturity.
+    tags: [architecture]
+    links:
+      - type: satisfies
+        target: REQ-AGORA-009
+
+  - id: AD-AGORA-004
+    type: design-decision
+    title: Lighter path (NATS-core + wasmtime + WAC); wasmCloud is the graduation path
+    status: accepted
+    description: >
+      Build on NATS-core + wasm coordination components on wasmtime, composed with
+      WAC; wasmCloud (lattice/wadm/providers) is the graduation path.
+    rationale: >
+      A lighter stack minimizes the dependency/operational surface for a small
+      team; the spike showed the only friction is one-time host-embedding plumbing
+      (the wasmtime-wasi WasiView boilerplate), acceptable vs running wasmCloud.
+    tags: [architecture]
+    links:
+      - type: satisfies
+        target: REQ-AGORA-010
+
+  - id: AD-AGORA-005
+    type: design-decision
+    title: Augment, do not replace, GitHub-issue coordination
+    status: accepted
+    description: >
+      agora adds a real-time layer; the durable record (facts in rivet) is preserved.
+    rationale: >
+      The async GitHub-issue loop is cross-talk-resistant by accident (rate-limited,
+      durable, addressed, one-actor-at-a-time). Replacing it would discard a working
+      safety property; augmenting adds low-latency convergence without losing it.
+    tags: [architecture]
+    links:
+      - type: satisfies
+        target: REQ-AGORA-001
+
+  - id: AD-AGORA-006
+    type: design-decision
+    title: Capability-scoping for structural cross-talk prevention; signing for provenance
+    status: accepted
+    description: >
+      WASI unforgeable handles + no ambient authority eliminate the reachability
+      class of cross-talk by construction; sigil signing retained for provenance.
+    rationale: >
+      Capability-scoping makes whole cross-talk classes unreachable by construction
+      (the strongest control), but research refuted totality claims (confused-deputy
+      remains), so sigil-signed identity is kept for provenance and self/peer
+      distinguishability.
+    tags: [architecture, cross-talk]
+    links:
+      - type: satisfies
+        target: REQ-AGORA-003
+      - type: satisfies
+        target: REQ-AGORA-006
+
+  - id: AD-AGORA-007
+    type: design-decision
+    title: Runtime cross-talk control set (Hermes-postmortem-derived)
+    status: accepted
+    description: >
+      Cross-talk classes not preventable structurally get runtime controls:
+      unconditional self-echo filter, hop-count/TTL, idempotency, and an
+      out-of-band human kill at the gateway.
+    rationale: >
+      The Hermes (#32791) postmortem shows these failures are real and that
+      conditional/in-band controls fail (a per-channel override and an in-band STOP
+      both failed); encoding them as unconditional, out-of-band, bounded controls is
+      the validated mitigation.
+    tags: [architecture, cross-talk]
+    links:
+      - type: satisfies
+        target: REQ-AGORA-004
+      - type: satisfies
+        target: REQ-AGORA-005
+      - type: satisfies
+        target: REQ-AGORA-007

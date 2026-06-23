@@ -1,0 +1,144 @@
+artifacts:
+  # ---- Requirements ----------------------------------------------------------
+  - id: REQ-AGORA-001
+    type: requirement
+    title: Real-time named-agent coordination on channels
+    status: draft
+    description: >
+      Named agents shall coordinate in real time by publishing/subscribing to
+      named channels (find each other, ask, propose, agree) — AUGMENTING, not
+      replacing, the existing async GitHub-issue coordination loop.
+    tags: [core, coordination]
+    fields: { priority: must, category: functional }
+
+  - id: REQ-AGORA-002
+    type: requirement
+    title: Durable, auditable, signed record of every message
+    status: draft
+    description: >
+      Every coordination message shall be a durable, traceable fact mirrored into
+      rivet, carrying a sigil signature — preserving the org's "everything is a
+      typed, traceable artifact" property that the async issue model has for free.
+    tags: [core, audit]
+    fields: { priority: must, category: functional }
+
+  - id: REQ-AGORA-003
+    type: requirement
+    title: Capability channel-scoping (structural cross-talk prevention)
+    status: draft
+    description: >
+      An agent shall only emit to / receive from channels it was explicitly
+      granted a handle to. With no ambient authority and unforgeable handles, an
+      agent cannot generate or hear cross-talk on channels it holds no handle to.
+    tags: [cross-talk, security, structural]
+    fields: { priority: must, category: non-functional }
+
+  - id: REQ-AGORA-004
+    type: requirement
+    title: Unconditional self-echo filter
+    status: draft
+    description: >
+      Messages whose signed sender equals the receiving agent shall be dropped on
+      EVERY channel; the filter must not be per-channel overridable. (Hermes
+      postmortem rule #1 — a conditional filter caused an infinite ack-loop.)
+    tags: [cross-talk, runtime]
+    fields: { priority: must, category: constraint }
+
+  - id: REQ-AGORA-005
+    type: requirement
+    title: Cascade bounding via hop-count / TTL
+    status: draft
+    description: >
+      Every message shall carry a hop budget that decrements on each re-emission;
+      at zero it is not re-amplified. This structurally bounds the reaction
+      cascade that is otherwise the Hermes infinite-loop failure mode.
+    tags: [cross-talk, runtime]
+    fields: { priority: must, category: constraint }
+
+  - id: REQ-AGORA-006
+    type: requirement
+    title: Signed per-persona identity
+    status: draft
+    description: >
+      Each agent persona shall have a cryptographically distinct sigil identity so
+      self and peer are distinguishable even though all personas share one account.
+      (Hermes rule #3 — sender-TYPE filtering is too coarse.)
+    tags: [cross-talk, security]
+    fields: { priority: must, category: non-functional }
+
+  - id: REQ-AGORA-007
+    type: requirement
+    title: Out-of-band human control plane
+    status: draft
+    description: >
+      A privileged human STOP/kill shall exist at the gateway layer (via thrum),
+      NOT as an in-channel message the agent may ignore. (Hermes rule #2 — an
+      in-band "stop" was treated as another turn; only pkill worked.)
+    tags: [cross-talk, human-in-loop]
+    fields: { priority: must, category: constraint }
+
+  - id: REQ-AGORA-008
+    type: requirement
+    title: WIT-typed messages with speech acts
+    status: draft
+    description: >
+      The coordination protocol shall be a WIT contract; messages carry a typed
+      speech act (inform/request/propose/agree/refuse) — the structural intent
+      layer. (Necessary, not sufficient, for semantic agreement.)
+    tags: [protocol]
+    fields: { priority: must, category: functional }
+
+  - id: REQ-AGORA-009
+    type: requirement
+    title: Global ordering and late-join replay
+    status: draft
+    description: >
+      The durable spine shall provide per-stream global ordering and durable
+      consumers so a late-joining agent replays from its last position — the
+      org-level generalization of the issue-hunt watermark/pending_gates pattern.
+    tags: [durability]
+    fields: { priority: must, category: functional }
+
+  - id: REQ-AGORA-010
+    type: requirement
+    title: Coordination logic as verified, signed wasm components
+    status: draft
+    description: >
+      Coordination logic shall be WIT-typed wasm components, composed with WAC,
+      verified with witness (MC/DC) + scry, and sigil-signed. "WCM to the extreme"
+      applies to the LOGIC + capabilities + verification, NOT the durable transport.
+    tags: [wcm, verification]
+    fields: { priority: must, category: functional }
+
+  # ---- Features --------------------------------------------------------------
+  - id: FEAT-AGORA-SPIKE
+    type: feature
+    title: Lighter-path spike (NATS-core + wasmtime + WAC)
+    status: implemented
+    description: >
+      Runnable spike (agent/ + host/). VERIFICATION EVIDENCE — the spike run
+      demonstrated, on a real wasm component: capability-scoping (8 ungranted
+      `secret-ops` deliveries blocked), unconditional self-echo filter (12 own
+      echoes dropped), hop-count TTL (cascade bounded 3->2->1->0, converged), and
+      6 signed facts written to facts/coordination.yaml. In-memory bus stands in
+      for NATS; sigil signature stubbed; out-of-band thrum kill not yet built.
+    tags: [spike]
+    fields:
+      phase: phase-1
+    links:
+      - type: satisfies
+        target: REQ-AGORA-001
+      - type: satisfies
+        target: REQ-AGORA-002
+      - type: satisfies
+        target: REQ-AGORA-003
+      - type: satisfies
+        target: REQ-AGORA-004
+      - type: satisfies
+        target: REQ-AGORA-005
+      - type: satisfies
+        target: REQ-AGORA-006
+      - type: satisfies
+        target: REQ-AGORA-008
+      - type: satisfies
+        target: REQ-AGORA-010

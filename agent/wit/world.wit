@@ -1,0 +1,33 @@
+package agora:agent;
+
+/// The agora coordination protocol — the WIT contract every agent shares.
+interface protocol {
+    /// FIPA-style speech acts: the structural intent layer (typed performatives
+    /// standardize communicative intent independent of payload).
+    enum act { inform, request, propose, agree, refuse }
+
+    /// A coordination message envelope.
+    /// - `from` is the signed persona identity (self/peer distinguishability).
+    /// - `sig` is the sigil signature (STUBBED in this spike — real wsc swaps in).
+    /// - `hops` is the TTL that structurally bounds reaction cascades.
+    record message {
+        id: u64,
+        sender: string,
+        channel: string,
+        act: act,
+        payload: string,
+        sig: string,
+        hops: u32,
+    }
+
+    /// Pure coordination logic. The host (the transport + capability layer, where
+    /// NATS/JetStream swaps in) hands the agent ONLY the messages it is allowed to
+    /// see — already capability-scoped to its granted channels and self-echo
+    /// filtered — and the component decides what to emit. The component holds no
+    /// ambient authority: it cannot reach a channel it was not handed.
+    coordinate: func(me: string, inbox: list<message>) -> list<message>;
+}
+
+world agent {
+    export protocol;
+}
