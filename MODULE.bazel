@@ -1,0 +1,49 @@
+"""agora — real-time agent-coordination substrate.
+
+The agent is a WebAssembly component built hermetically via the PulseEngine
+standard ruleset `rules_wasm_component` (native WASI 0.2 / wasm32-wasip2 through
+the bundled wasi-sdk 29 = WASI 0.2.6 — the exact version the component imports).
+The host is a native wasmtime binary (rules_rust + crate_universe).
+"""
+
+module(
+    name = "agora",
+    version = "0.1.0",
+    compatibility_level = 1,
+)
+
+# The PulseEngine wasm-component ruleset (sibling repo, not yet in BCR).
+bazel_dep(name = "rules_wasm_component", version = "1.0.0")
+local_path_override(
+    module_name = "rules_wasm_component",
+    path = "../rules_wasm_component",
+)
+
+# rules_wasm_component pins a patched rules_rust via git_override; overrides in a
+# non-root module are ignored, so the root must replicate it (the .rmeta sysroot +
+# rustc_lib filegroup fixes the host rust_binary build relies on).
+bazel_dep(name = "rules_rust", version = "0.69.0")
+git_override(
+    module_name = "rules_rust",
+    commit = "6281d27f3ffdb826df90db25c1dc66a198345d64",
+    remote = "https://github.com/bazelbuild/rules_rust.git",
+)
+
+# rust_wasm_component_bindgen's generated targets reference `@crates//:wit-bindgen`
+# and `@crates//:bitflags` — the crate hub rules_wasm_component defines. Import it
+# (the canonical external-consumer recipe, per wasm-component-examples). The crate
+# extension requires the root module to declare at least one `from_cargo` tag, so we
+# also vendor the host's wasmtime deps here (used by the native host rust_binary).
+crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
+crate.from_cargo(
+    name = "agora_host_crates",
+    cargo_lockfile = "//host:Cargo.lock",
+    manifests = ["//host:Cargo.toml"],
+    supported_platform_triples = [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+    ],
+)
+use_repo(crate, "agora_host_crates", "crates")

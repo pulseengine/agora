@@ -1,0 +1,8 @@
+# The root APFS container (~/Library/Caches/bazel) is space-constrained on this
+# machine; the repo volume /Volumes/Home has ~1.5 TiB free. Keep agora's Bazel
+# cache (toolchain downloads incl. wasi-sdk 29) on the big volume.
+startup --output_user_root=/Volumes/Home/.cache/bazel-agora
+
+# Quieter, CI-friendly output.
+common --color=yes
+build --show_timestamps

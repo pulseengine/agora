@@ -1,0 +1,28 @@
+"""agora agent — the capability-isolated coordination component.
+
+Built hermetically as a wasm32-wasip2 component via rules_wasm_component. The WIT
+world `agora:agent` imports nothing external (the only WASI surface comes from
+`std`, satisfied at componentization time by wasi-sdk 29 = WASI 0.2.6).
+"""
+
+load("@rules_wasm_component//rust:defs.bzl", "rust_wasm_component_bindgen")
+load("@rules_wasm_component//wit:defs.bzl", "wit_library")
+
+package(default_visibility = ["//visibility:public"])
+
+wit_library(
+    name = "agent_interfaces",
+    srcs = ["wit/world.wit"],
+    package_name = "agora:agent",
+    world = "agent",
+)
+
+# Generates the `agent_bindings` crate; src/lib.rs consumes it when the cargo-only
+# `cargo-bindgen` feature is OFF (the default under Bazel — rules_rust does not
+# enable cargo default features).
+rust_wasm_component_bindgen(
+    name = "agent",
+    srcs = ["src/lib.rs"],
+    profiles = ["release"],
+    wit = ":agent_interfaces",
+)

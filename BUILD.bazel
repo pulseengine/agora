@@ -1,0 +1,5 @@
+# Root package marker. Required so module extensions (e.g. rules_rust's
+# crate_universe, pulled in transitively by rules_wasm_component) can resolve
+# `//:MODULE.bazel` to a package. Intentionally otherwise empty.
+
+package(default_visibility = ["//visibility:public"])

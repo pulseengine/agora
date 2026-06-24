@@ -1,5 +1,11 @@
+// Bindings come from two build paths (see Cargo.toml `cargo-bindgen` feature):
+//   - cargo-component: in-tree generated `src/bindings.rs` (feature ON, default)
+//   - Bazel/rules_wasm_component: the generated `agent_bindings` crate (feature OFF)
+#[cfg(feature = "cargo-bindgen")]
 #[allow(warnings)]
 mod bindings;
+#[cfg(not(feature = "cargo-bindgen"))]
+use agent_bindings as bindings;
 
 use bindings::exports::agora::agent::protocol::{Act, Guest, Message};
 

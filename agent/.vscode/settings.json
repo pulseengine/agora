@@ -5,6 +5,8 @@
         "check",
         "--workspace",
         "--all-targets",
+        "--target",
+        "wasm32-wasip2",
         "--message-format=json"
     ],
 }
