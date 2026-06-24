@@ -20,6 +20,10 @@ wasmtime::component::bindgen!({ path: "../agent/wit", world: "agent" });
 
 use exports::agora::agent::protocol::{Act, Message};
 
+/// The agent component, built for native component-model WASI (wasm32-wasip2) by
+/// rules_wasm_component (Bazel) or `cargo component build --target wasm32-wasip2`.
+const AGENT_WASM: &str = "../agent/target/wasm32-wasip2/release/agent.wasm";
+
 /// Host state: the agent component's `std` imports WASI, so the host provides it.
 struct State {
     ctx: WasiCtx,
@@ -41,13 +45,29 @@ fn act_str(a: &Act) -> &'static str {
     }
 }
 
-fn main() -> anyhow::Result<()> {
-    // --- load the agent component on wasmtime (no host imports → empty linker) ---
+/// The measurable outcome of one simulation run — the spike's verification evidence
+/// as data, so `main` can print it AND the test suite can assert on it.
+struct SimResult {
+    /// Deliveries of an ungranted channel (`secret-ops`) the capability layer blocked.
+    dropped_caps: u32,
+    /// Own-message echoes the unconditional self-echo filter dropped.
+    dropped_echo: u32,
+    /// Messages accepted (and mirrored as facts), in bus order.
+    accepted: Vec<Message>,
+    /// The round at which the cascade converged (no new messages), if it did.
+    converged_round: Option<usize>,
+    /// Per-round emitted messages, for human-readable display.
+    rounds: Vec<Vec<Message>>,
+}
+
+/// Run the bus simulation against the real agent component and return the measured
+/// outcome. No I/O side effects (fact-writing lives in `main`) so it is testable.
+fn run_simulation() -> anyhow::Result<SimResult> {
+    // --- load the agent component on wasmtime ---
     let mut config = Config::new();
     config.wasm_component_model(true);
     let engine = Engine::new(&config)?;
-    let wasm = "../agent/target/wasm32-wasip1/release/agent.wasm";
-    let component = Component::from_file(&engine, wasm)?;
+    let component = Component::from_file(&engine, AGENT_WASM)?;
     let mut linker: Linker<State> = Linker::new(&engine);
     wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
     let state = State { ctx: WasiCtxBuilder::new().inherit_stdio().build(), table: ResourceTable::new() };
@@ -75,8 +95,8 @@ fn main() -> anyhow::Result<()> {
     let mut seen: HashSet<(String, u64)> = HashSet::new();
     let (mut dropped_caps, mut dropped_echo) = (0u32, 0u32);
     let mut accepted: Vec<Message> = Vec::new();
-
-    println!("agora spike — 2 named agents on `build-coord`; `secret-ops` is ungranted\n");
+    let mut rounds: Vec<Vec<Message>> = Vec::new();
+    let mut converged_round = None;
 
     for round in 0..8 {
         let snapshot = bus.clone();
@@ -109,24 +129,39 @@ fn main() -> anyhow::Result<()> {
             }
         }
         if new_msgs.is_empty() {
-            println!("\nround {round}: quiet — converged (cascade died at the hop limit).");
+            converged_round = Some(round);
             break;
         }
-        for m in &new_msgs {
+        accepted.extend(new_msgs.iter().cloned());
+        bus.extend(new_msgs.iter().cloned());
+        rounds.push(new_msgs);
+    }
+
+    Ok(SimResult { dropped_caps, dropped_echo, accepted, converged_round, rounds })
+}
+
+fn main() -> anyhow::Result<()> {
+    println!("agora spike — 2 named agents on `build-coord`; `secret-ops` is ungranted\n");
+
+    let sim = run_simulation()?;
+
+    for (round, msgs) in sim.rounds.iter().enumerate() {
+        for m in msgs {
             println!("  r{round} #{:<3} {:>11} --{:<7}--> [{}] hops={} {} :: {}", m.id, m.sender, act_str(&m.act), m.channel, m.hops, m.sig, m.payload);
         }
-        accepted.extend(new_msgs.iter().cloned());
-        bus.extend(new_msgs);
+    }
+    if let Some(round) = sim.converged_round {
+        println!("\nround {round}: quiet — converged (cascade died at the hop limit).");
     }
 
     println!("\nstructural controls fired this run:");
-    println!("  capability-scoping  : {dropped_caps} deliveries of `secret-ops` blocked (agents hold no handle)");
-    println!("  self-echo filter    : {dropped_echo} own-message echoes dropped (unconditional)");
+    println!("  capability-scoping  : {} deliveries of `secret-ops` blocked (agents hold no handle)", sim.dropped_caps);
+    println!("  self-echo filter    : {} own-message echoes dropped (unconditional)", sim.dropped_echo);
     println!("  hop-count TTL       : cascade bounded — without it this is the Hermes infinite loop");
 
     // --- mirror accepted messages into rivet as signed facts (the durable record) ---
     let mut yaml = String::from("# agora coordination facts — mirrored into rivet (the durable, auditable record)\nartifacts:\n");
-    for m in &accepted {
+    for m in &sim.accepted {
         let _ = write!(
             yaml,
             "  - id: COORD-{:04}\n    type: coordination-fact\n    sender: {}\n    channel: {}\n    act: {}\n    sig: {}\n    payload: \"{}\"\n",
@@ -135,7 +170,48 @@ fn main() -> anyhow::Result<()> {
     }
     std::fs::create_dir_all("../facts")?;
     std::fs::write("../facts/coordination.yaml", &yaml)?;
-    println!("\nrivet record: wrote {} signed facts → facts/coordination.yaml", accepted.len());
+    println!("\nrivet record: wrote {} signed facts → facts/coordination.yaml", sim.accepted.len());
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test for the cross-talk control set — the spike's verification
+    /// evidence as an assertion, not a manual read of stdout. This is the
+    /// integration-level oracle for REQ-AGORA-003/004/005 (capability scoping,
+    /// unconditional self-echo, hop-count TTL) and the Hermes postmortem rules.
+    ///
+    /// Requires the agent component built for wasm32-wasip2:
+    ///   cd agent && cargo component build --release --target wasm32-wasip2
+    ///   (or `bazel build //agent:agent`)
+    #[test]
+    fn cross_talk_controls_hold() {
+        let sim = run_simulation().expect("simulation runs the wasm component");
+
+        // REQ-AGORA-003 — capability channel-scoping: the ungranted `secret-ops`
+        // message is never delivered. 2 agents × 1 ungranted message × 4 active
+        // rounds (the bus carries it every round until convergence) = 8 blocked.
+        assert_eq!(sim.dropped_caps, 8, "every `secret-ops` delivery must be blocked");
+
+        // REQ-AGORA-004 — unconditional self-echo filter: each agent drops its own
+        // messages on every channel. 12 own echoes over the run.
+        assert_eq!(sim.dropped_echo, 12, "self-echo filter must drop every own-message");
+
+        // REQ-AGORA-005 — hop-count / TTL: the deliberately chatty agents would
+        // loop forever (the Hermes failure); the hop budget bounds the cascade and
+        // it converges instead of running to the 8-round cap.
+        assert!(sim.converged_round.is_some(), "cascade must converge, not hit the round cap");
+        assert!(sim.converged_round.unwrap() < 7, "cascade must die at the hop limit");
+
+        // The durable record: exactly the accepted messages are mirrored as facts.
+        assert_eq!(sim.accepted.len(), 6, "6 signed coordination facts expected");
+
+        // No accepted message is a self-echo or off-scope (structural invariants).
+        for m in &sim.accepted {
+            assert_eq!(m.channel, "build-coord", "no fact may land off the granted channel");
+        }
+    }
 }

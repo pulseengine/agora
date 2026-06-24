@@ -1,2 +1,6 @@
 target/
 */target/
+
+# Bazel convenience symlinks (point into the out-of-tree cache; never commit).
+# MODULE.bazel.lock IS committed (pins the module graph).
+/bazel-*

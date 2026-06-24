@@ -1,10 +1,20 @@
 project:
   name: agora
   version: "0.1.0"
+  # agora's load-bearing controls (capability isolation, cross-talk prevention,
+  # the Hermes #32791 postmortem) are a systems-theoretic SECURITY hazard analysis,
+  # so the analysis schemas are STPA + STPA-Sec. Regulatory framing: EU AI Act
+  # (multi-agent AI coordination with mandated human oversight — the out-of-band
+  # kill = Art. 14); its Annex-IV/Art-9-15 conformance types are enabled in the
+  # feature-loop pass that authors those docs, not scaffolded empty here. See
+  # AD-AGORA-009.
   schemas:
     - common
     - dev
-
+    - stpa
+    - stpa-sec
 sources:
   - path: artifacts
+    format: generic-yaml
+  - path: safety
     format: generic-yaml

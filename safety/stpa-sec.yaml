@@ -1,0 +1,318 @@
+# agora STPA-Sec analysis — the security top of the V. Formalizes the cross-talk
+# control set (HANDOFF §3) and the Hermes infinite-ack-loop postmortem
+# (NousResearch/hermes-agent#32791) into a closed trace:
+#   sec-loss <- sec-hazard <- sec-constraint (traces-to REQ) ;
+#   sec-uca (issued-by controller) -> sec-hazard ; sec-scenario -> sec-hazard
+artifacts:
+  # ---- Security losses (CIA) -------------------------------------------------
+  - id: SEC-LOSS-1
+    type: sec-loss
+    title: Unauthorized access to coordination content (confidentiality)
+    status: accepted
+    description: >
+      An agent reads or emits on a channel it was never granted (e.g. `secret-ops`),
+      disclosing or injecting coordination content across an authority boundary.
+    tags: [stpa-sec, confidentiality]
+    fields:
+      cia-impact: [confidentiality]
+
+  - id: SEC-LOSS-2
+    type: sec-loss
+    title: Resource/cost exhaustion from a runaway message cascade (availability)
+    status: accepted
+    description: >
+      Agents amplify each other without bound — the Hermes infinite-ack-loop — burning
+      tokens/compute and denying the coordination channel to real work.
+    tags: [stpa-sec, availability]
+    fields:
+      cia-impact: [availability]
+
+  - id: SEC-LOSS-3
+    type: sec-loss
+    title: Forged or unattributable coordination record (integrity)
+    status: accepted
+    description: >
+      A message cannot be reliably attributed to a distinct signed persona, allowing
+      spoofing/forgery and corrupting the durable, auditable record.
+    tags: [stpa-sec, integrity]
+    fields:
+      cia-impact: [integrity]
+
+  - id: SEC-LOSS-4
+    type: sec-loss
+    title: Loss of human control over the agent collective (availability)
+    status: accepted
+    description: >
+      Operators cannot reliably stop a misbehaving agent; the collective continues to
+      act against operator intent.
+    tags: [stpa-sec, availability]
+    fields:
+      cia-impact: [availability]
+
+  # ---- Security hazards ------------------------------------------------------
+  - id: SEC-HAZ-1
+    type: sec-hazard
+    title: An agent holds reachability to an ungranted channel
+    status: accepted
+    description: >
+      The control structure permits an agent to receive from / emit to a channel it
+      was not granted a handle to (ambient authority).
+    tags: [stpa-sec]
+    fields:
+      cia-impact: [confidentiality]
+    links:
+      - type: leads-to-sec-loss
+        target: SEC-LOSS-1
+
+  - id: SEC-HAZ-2
+    type: sec-hazard
+    title: Message re-emission is unbounded (no hop/TTL budget)
+    status: accepted
+    description: >
+      A reaction can be re-emitted without a decrementing budget, so a chatty or
+      adversarial agent drives an unbounded cascade.
+    tags: [stpa-sec]
+    fields:
+      cia-impact: [availability]
+    links:
+      - type: leads-to-sec-loss
+        target: SEC-LOSS-2
+
+  - id: SEC-HAZ-3
+    type: sec-hazard
+    title: An agent reacts to its own messages (self-echo)
+    status: accepted
+    description: >
+      `sender == receiver` messages are delivered, so an agent amplifies its own
+      output — the seed of the ack-loop cascade.
+    tags: [stpa-sec]
+    fields:
+      cia-impact: [availability]
+    links:
+      - type: leads-to-sec-loss
+        target: SEC-LOSS-2
+
+  - id: SEC-HAZ-4
+    type: sec-hazard
+    title: Message identity is unsigned or persona-indistinguishable
+    status: accepted
+    description: >
+      Without a per-persona cryptographic identity, self and peer are not reliably
+      distinguishable and messages can be spoofed.
+    tags: [stpa-sec]
+    fields:
+      cia-impact: [integrity]
+    links:
+      - type: leads-to-sec-loss
+        target: SEC-LOSS-3
+
+  - id: SEC-HAZ-5
+    type: sec-hazard
+    title: The only stop mechanism is in-band (agent-ignorable)
+    status: accepted
+    description: >
+      Operator STOP is delivered as a channel message the agent may treat as just
+      another turn (Hermes rule #2) — no privileged, out-of-band kill exists.
+    tags: [stpa-sec]
+    fields:
+      cia-impact: [availability]
+    links:
+      - type: leads-to-sec-loss
+        target: SEC-LOSS-4
+
+  # ---- Security constraints (inversions; trace to the requirement) -----------
+  - id: SEC-CON-1
+    type: sec-constraint
+    title: Agents shall hold handles only to granted channels (no ambient authority)
+    status: accepted
+    description: >
+      The host shall deliver/accept on a channel only if the agent holds a handle to
+      it; unforgeable handles + no ambient authority make ungranted channels
+      unreachable by construction.
+    tags: [stpa-sec, structural]
+    links:
+      - type: prevents-sec-hazard
+        target: SEC-HAZ-1
+      - type: traces-to
+        target: REQ-AGORA-003
+
+  - id: SEC-CON-2
+    type: sec-constraint
+    title: Every message shall carry a decrementing hop budget; none re-emitted at zero
+    status: accepted
+    description: >
+      A hop/TTL budget bounds the reaction cascade structurally; at zero a message is
+      not re-amplified.
+    tags: [stpa-sec, runtime]
+    links:
+      - type: prevents-sec-hazard
+        target: SEC-HAZ-2
+      - type: traces-to
+        target: REQ-AGORA-005
+
+  - id: SEC-CON-3
+    type: sec-constraint
+    title: An agent's own messages shall be dropped unconditionally on every channel
+    status: accepted
+    description: >
+      The self-echo filter (`sender == receiver`) must fire on every channel and must
+      never be per-channel overridable (Hermes rule #1).
+    tags: [stpa-sec, runtime]
+    links:
+      - type: prevents-sec-hazard
+        target: SEC-HAZ-3
+      - type: traces-to
+        target: REQ-AGORA-004
+
+  - id: SEC-CON-4
+    type: sec-constraint
+    title: Every message shall carry a per-persona signed identity
+    status: accepted
+    description: >
+      Each persona has a cryptographically distinct sigil identity so self/peer are
+      distinguishable and the record is attributable (real signing blocked on
+      sigil#164; FNV stub in the spike).
+    tags: [stpa-sec, integrity]
+    links:
+      - type: prevents-sec-hazard
+        target: SEC-HAZ-4
+      - type: traces-to
+        target: REQ-AGORA-006
+      - type: traces-to
+        target: REQ-AGORA-002
+
+  - id: SEC-CON-5
+    type: sec-constraint
+    title: A privileged out-of-band human kill shall exist at the gateway
+    status: accepted
+    description: >
+      The operator STOP must be a privileged kill at the gateway/thrum, independent of
+      any in-channel message the agent could ignore (Hermes rule #2). EU AI Act Art. 14
+      human-oversight control.
+    tags: [stpa-sec, human-oversight]
+    links:
+      - type: prevents-sec-hazard
+        target: SEC-HAZ-5
+      - type: traces-to
+        target: REQ-AGORA-007
+
+  # ---- Security unsafe control actions ---------------------------------------
+  - id: SEC-UCA-1
+    type: sec-uca
+    title: Host delivers a message on a channel the agent was not granted
+    status: accepted
+    description: >
+      UCA type 2 (providing). The host's `deliver` action places an ungranted-channel
+      message in an agent's inbox.
+    tags: [stpa-sec]
+    fields:
+      uca-type: providing
+      context: The agent holds no handle to the message's channel.
+      adversarial-causation: >
+        An attacker (or a misconfiguration) that can influence the capability table or
+        channel routing makes an off-scope channel reachable, exfiltrating or injecting
+        coordination content.
+    links:
+      - type: issued-by
+        target: CTRL-HOST
+      - type: leads-to-sec-hazard
+        target: SEC-HAZ-1
+
+  - id: SEC-UCA-2
+    type: sec-uca
+    title: Agent emits a re-echo without decrementing the hop budget
+    status: accepted
+    description: >
+      UCA type 2 (providing). The agent re-emits in reaction without consuming budget,
+      or the host accepts an un-decremented re-emission.
+    tags: [stpa-sec]
+    fields:
+      uca-type: providing
+      context: A reaction is emitted while hops could still be > 0 indefinitely.
+      adversarial-causation: >
+        A compromised or adversarial agent deliberately omits the decrement (or replays)
+        to sustain a cascade and exhaust shared resources.
+    links:
+      - type: issued-by
+        target: CTRL-AGENT
+      - type: leads-to-sec-hazard
+        target: SEC-HAZ-2
+
+  - id: SEC-UCA-3
+    type: sec-uca
+    title: Host delivers an agent's own message back to it
+    status: accepted
+    description: >
+      UCA type 2 (providing). The host fails to drop `sender == receiver` before
+      delivery, feeding an agent its own output.
+    tags: [stpa-sec]
+    fields:
+      uca-type: providing
+      context: A bus message whose sender equals the receiving agent is delivered.
+      adversarial-causation: >
+        An attacker who can forge or relabel the sender field defeats a sender-TYPE
+        (rather than signed-persona) self-echo check and re-introduces self-echo.
+    links:
+      - type: issued-by
+        target: CTRL-HOST
+      - type: leads-to-sec-hazard
+        target: SEC-HAZ-3
+
+  - id: SEC-UCA-4
+    type: sec-uca
+    title: Effective stop is not provided out-of-band
+    status: accepted
+    description: >
+      UCA type 1 (not providing). No privileged out-of-band kill is issued; the only
+      stop is an in-channel message the agent can ignore.
+    tags: [stpa-sec]
+    fields:
+      uca-type: not-providing
+      context: An operator needs to stop a misbehaving agent.
+      adversarial-causation: >
+        A misbehaving or adversarial agent simply does not act on an in-band stop,
+        treating it as another turn; without an out-of-band kill the operator is
+        powerless.
+    links:
+      - type: issued-by
+        target: CTRL-HOST
+      - type: leads-to-sec-hazard
+        target: SEC-HAZ-5
+
+  # ---- Security loss scenarios (Hermes #32791 postmortem) --------------------
+  - id: SEC-SCN-1
+    type: sec-scenario
+    title: Two agents ack each other into an unbounded cascade (the Hermes ack-loop)
+    status: accepted
+    description: >
+      With a conditional/missing self-echo filter and no hop budget, agent A acks B,
+      B acks A, and the exchange grows without bound — the NousResearch/hermes-agent
+      #32791 infinite-ack-loop that exhausted resources.
+    tags: [stpa-sec, hermes]
+    fields:
+      attacker-type: insider
+      attack-vector: network
+    links:
+      - type: leads-to-sec-hazard
+        target: SEC-HAZ-2
+      - type: caused-by-sec-uca
+        target: SEC-UCA-2
+      - type: caused-by-sec-uca
+        target: SEC-UCA-3
+
+  - id: SEC-SCN-2
+    type: sec-scenario
+    title: Operator posts "stop" in-channel; the agent treats it as another turn
+    status: accepted
+    description: >
+      The Hermes rule #2 failure: an in-band STOP was consumed as just another message
+      and ignored; only an out-of-band pkill stopped the agent.
+    tags: [stpa-sec, hermes]
+    fields:
+      attacker-type: insider
+      attack-vector: network
+    links:
+      - type: leads-to-sec-hazard
+        target: SEC-HAZ-5
+      - type: caused-by-sec-uca
+        target: SEC-UCA-4

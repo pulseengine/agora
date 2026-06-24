@@ -1,0 +1,18 @@
+# host/ as a Bazel package.
+#
+# The Cargo manifests are exported so the root MODULE.bazel crate_universe hub
+# (`agora_host_crates`) can vendor the host's wasmtime/anyhow deps.
+#
+# NOTE: a fully hermetic `rust_binary` for the host is intentionally not yet wired.
+# The host uses `wasmtime::component::bindgen!{ path: "../agent/wit" }` (a
+# compile-time filesystem read) and loads the component .wasm + writes facts at
+# runtime via relative paths — all of which need careful Bazel runfiles/compile_data
+# plumbing. The host builds and its tests pass under cargo today; the Bazel host
+# target is tracked as follow-up. The agent *component* builds via `//agent:agent`.
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "Cargo.toml",
+    "Cargo.lock",
+])

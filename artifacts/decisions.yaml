@@ -15,6 +15,8 @@ artifacts:
     links:
       - type: satisfies
         target: REQ-AGORA-002
+    fields:
+      release: v0.1.0
 
   - id: AD-AGORA-002
     type: design-decision
@@ -31,6 +33,8 @@ artifacts:
     links:
       - type: satisfies
         target: REQ-AGORA-001
+    fields:
+      release: v0.1.0
 
   - id: AD-AGORA-003
     type: design-decision
@@ -47,6 +51,8 @@ artifacts:
     links:
       - type: satisfies
         target: REQ-AGORA-009
+    fields:
+      release: v0.1.0
 
   - id: AD-AGORA-004
     type: design-decision
@@ -63,6 +69,8 @@ artifacts:
     links:
       - type: satisfies
         target: REQ-AGORA-010
+    fields:
+      release: v0.1.0
 
   - id: AD-AGORA-005
     type: design-decision
@@ -78,6 +86,8 @@ artifacts:
     links:
       - type: satisfies
         target: REQ-AGORA-001
+    fields:
+      release: v0.1.0
 
   - id: AD-AGORA-006
     type: design-decision
@@ -97,6 +107,8 @@ artifacts:
         target: REQ-AGORA-003
       - type: satisfies
         target: REQ-AGORA-006
+    fields:
+      release: v0.1.0
 
   - id: AD-AGORA-007
     type: design-decision
@@ -119,3 +131,79 @@ artifacts:
         target: REQ-AGORA-005
       - type: satisfies
         target: REQ-AGORA-007
+    fields:
+      release: v0.1.0
+
+  - id: AD-AGORA-008
+    type: design-decision
+    title: Build hermetically on native WASI 0.2 (wasm32-wasip2) via rules_wasm_component; WASI p3 is the recorded direction
+    status: accepted
+    description: >
+      The agent component builds via the PulseEngine standard ruleset
+      rules_wasm_component (Bazel) for wasm32-wasip2 (wasi-sdk 29 = WASI 0.2.6),
+      not cargo-component's legacy preview1 default. A cargo path is retained behind
+      the `cargo-bindgen` feature for quick iteration.
+    rationale: >
+      WASI 0.3 (Preview 3) was ratified 2026-06-11, but the Rust wasm32-wasip3
+      target is still tier-3 (no prebuilt std; needs nightly + build-std + wasi-sdk
+      + a libc patch) and its std still emits p2 imports during the transition — so
+      a p3 build today adds major toolchain friction for p2 imports anyway, and the
+      agent is pure coordination logic that gains nothing concrete from p3's async
+      streams. p3 pays off at the durable transport seam (stream<T>/future<T> map
+      onto JetStream; host -> wasmtime 43 p3 async linker), adopted there in v0.3.0.
+    tags: [architecture, build, wasi, bazel]
+    fields:
+      release: v0.1.0
+    links:
+      - type: satisfies
+        target: REQ-AGORA-011
+      - type: satisfies
+        target: REQ-AGORA-010
+
+  - id: AD-AGORA-009
+    type: design-decision
+    title: Verification framing — STPA-Sec hazard analysis with EU AI Act as the regulatory lens
+    status: accepted
+    description: >
+      agora's verification scaffolding targets STPA + STPA-Sec as the hazard-analysis
+      method (safety/ tree: losses -> hazards -> constraints -> UCAs -> scenarios over
+      the host/agent control structure) and the EU AI Act as the regulatory framing.
+      The AI Act's Annex-IV / Art-9-15 conformance artifact types are enabled in the
+      feature-loop pass that authors those documents, not scaffolded empty at bootstrap.
+    rationale: >
+      agora's load-bearing controls are security + AI-coordination-safety controls, so
+      a systems-theoretic SECURITY analysis (STPA-Sec) is the right method — the
+      cross-talk control set is literally its output. EU AI Act fits the domain (a
+      multi-agent AI coordination system with mandated human oversight: the out-of-band
+      kill = Art. 14 human oversight; risk management = Art. 9). Hardware-safety certs
+      (DO-178C/ISO 26262/EN 50128) would be a poor fit for coordination infrastructure.
+      Integrity level: high-assurance internal infrastructure (no ASIL/DAL/SIL — wrong
+      domains); STPA severity drives constraint rigor.
+    tags: [architecture, verification, stpa-sec, eu-ai-act]
+    fields:
+      release: v0.1.0
+    links:
+      - type: satisfies
+        target: REQ-AGORA-007
+      - type: satisfies
+        target: REQ-AGORA-010
+
+  - id: AD-AGORA-010
+    type: design-decision
+    title: Coordination protocol is a WIT contract with FIPA-style speech acts
+    status: accepted
+    description: >
+      The agent↔agent protocol is a WIT world (`agora:agent`) whose messages carry a
+      typed speech act (inform/request/propose/agree/refuse) — the structural intent
+      layer, independent of payload.
+    rationale: >
+      WIT types give the protocol a versioned, language-neutral, machine-checkable
+      contract enforced at the component boundary; FIPA-style performatives standardize
+      communicative intent (necessary, not sufficient, for semantic agreement). This is
+      the structural layer the runtime cross-talk controls and the durable record build on.
+    tags: [architecture, protocol]
+    fields:
+      release: v0.1.0
+    links:
+      - type: satisfies
+        target: REQ-AGORA-008

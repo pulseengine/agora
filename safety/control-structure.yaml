@@ -1,0 +1,82 @@
+# agora control structure — the STPA hierarchical control model the security
+# analysis (stpa-sec.yaml) is built on. Two controllers (the host/gateway and the
+# coordination agent) acting on one controlled process (the channel bus).
+artifacts:
+  - id: CTRL-HOST
+    type: controller
+    title: Host / gateway (transport + capability layer)
+    status: implemented
+    description: >
+      The native trust base. Holds the capability table (which agent was granted
+      which channel), enforces self-echo and idempotency, stamps message ids, and
+      owns the out-of-band kill. Its process model = the per-agent channel grants +
+      the seen-set. Where real NATS/JetStream and the thrum gateway swap in.
+    tags: [control-structure]
+
+  - id: CTRL-AGENT
+    type: controller
+    title: Coordination agent (capability-isolated wasm component)
+    status: implemented
+    description: >
+      Pure coordination logic with no ambient authority. Issues messages (its
+      control actions) only in reaction to the inbox the host hands it; it cannot
+      reach a channel it was not granted. Its process model = the inbox it is given.
+    tags: [control-structure]
+
+  - id: PROC-BUS
+    type: controlled-process
+    title: Coordination bus / channel state
+    status: implemented
+    description: >
+      The append-only, ordered message log over named channels (the in-memory Vec
+      stand-in for NATS/JetStream). The process whose state controllers act upon.
+    tags: [control-structure]
+
+  - id: CA-DELIVER
+    type: control-action
+    title: Deliver message to an agent's inbox
+    status: implemented
+    description: >
+      The host's control action: place a bus message into an agent's inbox. The
+      capability, self-echo, and idempotency filters gate this action.
+    tags: [control-structure]
+    fields:
+      action: deliver-message-to-agent
+    links:
+      - type: issued-by
+        target: CTRL-HOST
+      - type: acts-on
+        target: CTRL-AGENT
+
+  - id: CA-EMIT
+    type: control-action
+    title: Agent emits a coordination message
+    status: implemented
+    description: >
+      The agent's control action: return messages to be appended to the bus, each
+      carrying a decremented hop budget and a signed persona identity.
+    tags: [control-structure]
+    fields:
+      action: emit-message-to-bus
+    links:
+      - type: issued-by
+        target: CTRL-AGENT
+      - type: acts-on
+        target: PROC-BUS
+
+  - id: CA-KILL
+    type: control-action
+    title: Out-of-band human kill of an agent
+    status: draft
+    description: >
+      The privileged operator control action at the gateway (thrum): terminate a
+      misbehaving agent independent of any in-channel message. Not yet built
+      (REQ-AGORA-007, GitHub issue #4).
+    tags: [control-structure]
+    fields:
+      action: kill-agent-out-of-band
+    links:
+      - type: issued-by
+        target: CTRL-HOST
+      - type: acts-on
+        target: CTRL-AGENT

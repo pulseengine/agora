@@ -6,6 +6,14 @@ edition = "2024"
 [dependencies]
 wit-bindgen-rt = { version = "0.44.0", features = ["bitflags"] }
 
+[features]
+# The cargo-component build path uses in-tree generated bindings (`mod bindings`).
+# The Bazel/rules_wasm_component path uses the generated `agent_bindings` crate, so
+# it builds with this feature OFF. cargo enables it by default; rules_rust does not
+# enable cargo default features, so Bazel gets the bindgen-crate path automatically.
+default = ["cargo-bindgen"]
+cargo-bindgen = []
+
 [lib]
 crate-type = ["cdylib"]
 

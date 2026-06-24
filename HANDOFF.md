@@ -57,7 +57,7 @@ re-added. **Structural** (by construction) vs **runtime** (must design in):
 
 ## 4. The spike (`agent/` + `host/`) — what runs, what's stubbed
 
-`cd agent && cargo component build --release && cd ../host && cargo run --release`
+`cd agent && cargo component build --release --target wasm32-wasip2 && cd ../host && cargo run --release`
 
 Proven on a real wasm component: capability-scoping (8 `secret-ops` blocked),
 unconditional self-echo (12 dropped), hop-count TTL (cascade bounded, converged),
@@ -77,15 +77,26 @@ out-of-band kill (not built).
 
 ## 6. Next steps → see the repo issues
 
-Swap in real NATS/JetStream; wire real sigil signing (after sigil#164); build the
-thrum out-of-band kill; per-channel capability granularity (WASI grants at socket
-level — the per-channel policy layer is ours to build); the lighter-vs-wasmCloud
-final call (spike says: stay lighter); apply the five-track release standard
-(witness/scry/sigil/rivet) so agora is the flagship dogfood.
+Swap in real NATS/JetStream — and adopt **WASI p3** (ratified 2026-06-11) *at this
+seam*: its `stream<T>`/`future<T>` map onto JetStream consumers (host → wasmtime 43+
+`wasmtime_wasi::p3` async linker; agent → `wasm32-wasip3` once it hits tier-2 and
+`std` drops its p2 imports). The spike builds on stable `wasm32-wasip2` today — see
+README "WASI: on p2 now, p3 is the direction" for the why and the path. Then: wire
+real sigil signing (after sigil#164); build the thrum out-of-band kill; per-channel
+capability granularity (WASI grants at socket level — the per-channel policy layer is
+ours to build); the lighter-vs-wasmCloud final call (spike says: stay lighter); apply
+the five-track release standard (witness/scry/sigil/rivet) so agora is the flagship
+dogfood.
 
 ## 7. Where things live
 
 - `artifacts/` — rivet requirements + decisions (the spec, validated).
+- `safety/` — the **STPA-Sec hazard analysis** (the verification top of the V):
+  `control-structure.yaml` (host/agent controllers, the bus) + `stpa-sec.yaml`
+  (4 security losses → 5 hazards → 5 constraints → 4 UCAs → 2 Hermes loss
+  scenarios). The §3 cross-talk control set, now formalized and traced to the
+  requirements. Schemas `stpa`+`stpa-sec`; framing **EU AI Act** (AD-AGORA-009).
+  `rivet validate` PASS, 100% coverage. New work lands already traced.
 - `agent/`, `host/` — the runnable spike. `facts/coordination.yaml` — sample record.
 - `README.md` — spike detail + lighter-vs-wasmCloud. `HANDOFF.md` — this file.
 - Full research transcripts (this session): runs `wf_f464d2a7-2ee` (coordination),
