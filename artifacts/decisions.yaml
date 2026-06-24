@@ -159,3 +159,51 @@ artifacts:
         target: REQ-AGORA-011
       - type: satisfies
         target: REQ-AGORA-010
+
+  - id: AD-AGORA-009
+    type: design-decision
+    title: Verification framing — STPA-Sec hazard analysis with EU AI Act as the regulatory lens
+    status: accepted
+    description: >
+      agora's verification scaffolding targets STPA + STPA-Sec as the hazard-analysis
+      method (safety/ tree: losses -> hazards -> constraints -> UCAs -> scenarios over
+      the host/agent control structure) and the EU AI Act as the regulatory framing.
+      The AI Act's Annex-IV / Art-9-15 conformance artifact types are enabled in the
+      feature-loop pass that authors those documents, not scaffolded empty at bootstrap.
+    rationale: >
+      agora's load-bearing controls are security + AI-coordination-safety controls, so
+      a systems-theoretic SECURITY analysis (STPA-Sec) is the right method — the
+      cross-talk control set is literally its output. EU AI Act fits the domain (a
+      multi-agent AI coordination system with mandated human oversight: the out-of-band
+      kill = Art. 14 human oversight; risk management = Art. 9). Hardware-safety certs
+      (DO-178C/ISO 26262/EN 50128) would be a poor fit for coordination infrastructure.
+      Integrity level: high-assurance internal infrastructure (no ASIL/DAL/SIL — wrong
+      domains); STPA severity drives constraint rigor.
+    tags: [architecture, verification, stpa-sec, eu-ai-act]
+    fields:
+      release: v0.1.0
+    links:
+      - type: satisfies
+        target: REQ-AGORA-007
+      - type: satisfies
+        target: REQ-AGORA-010
+
+  - id: AD-AGORA-010
+    type: design-decision
+    title: Coordination protocol is a WIT contract with FIPA-style speech acts
+    status: accepted
+    description: >
+      The agent↔agent protocol is a WIT world (`agora:agent`) whose messages carry a
+      typed speech act (inform/request/propose/agree/refuse) — the structural intent
+      layer, independent of payload.
+    rationale: >
+      WIT types give the protocol a versioned, language-neutral, machine-checkable
+      contract enforced at the component boundary; FIPA-style performatives standardize
+      communicative intent (necessary, not sufficient, for semantic agreement). This is
+      the structural layer the runtime cross-talk controls and the durable record build on.
+    tags: [architecture, protocol]
+    fields:
+      release: v0.1.0
+    links:
+      - type: satisfies
+        target: REQ-AGORA-008

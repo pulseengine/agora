@@ -91,6 +91,12 @@ dogfood.
 ## 7. Where things live
 
 - `artifacts/` — rivet requirements + decisions (the spec, validated).
+- `safety/` — the **STPA-Sec hazard analysis** (the verification top of the V):
+  `control-structure.yaml` (host/agent controllers, the bus) + `stpa-sec.yaml`
+  (4 security losses → 5 hazards → 5 constraints → 4 UCAs → 2 Hermes loss
+  scenarios). The §3 cross-talk control set, now formalized and traced to the
+  requirements. Schemas `stpa`+`stpa-sec`; framing **EU AI Act** (AD-AGORA-009).
+  `rivet validate` PASS, 100% coverage. New work lands already traced.
 - `agent/`, `host/` — the runnable spike. `facts/coordination.yaml` — sample record.
 - `README.md` — spike detail + lighter-vs-wasmCloud. `HANDOFF.md` — this file.
 - Full research transcripts (this session): runs `wf_f464d2a7-2ee` (coordination),
