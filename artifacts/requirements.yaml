@@ -117,7 +117,7 @@ artifacts:
   - id: REQ-AGORA-009
     type: requirement
     title: Global ordering and late-join replay
-    status: draft
+    status: implemented
     description: >
       The durable spine shall provide per-stream global ordering and durable
       consumers so a late-joining agent replays from its last position — the
