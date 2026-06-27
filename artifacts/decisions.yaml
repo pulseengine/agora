@@ -16,7 +16,7 @@ artifacts:
       - type: satisfies
         target: REQ-AGORA-002
     fields:
-      release: v0.1.0
+      baseline: v0.1.0
 
   - id: AD-AGORA-002
     type: design-decision
@@ -34,7 +34,7 @@ artifacts:
       - type: satisfies
         target: REQ-AGORA-001
     fields:
-      release: v0.1.0
+      baseline: v0.1.0
 
   - id: AD-AGORA-003
     type: design-decision
@@ -52,7 +52,7 @@ artifacts:
       - type: satisfies
         target: REQ-AGORA-009
     fields:
-      release: v0.1.0
+      baseline: v0.1.0
 
   - id: AD-AGORA-004
     type: design-decision
@@ -70,7 +70,7 @@ artifacts:
       - type: satisfies
         target: REQ-AGORA-010
     fields:
-      release: v0.1.0
+      baseline: v0.1.0
 
   - id: AD-AGORA-005
     type: design-decision
@@ -87,7 +87,7 @@ artifacts:
       - type: satisfies
         target: REQ-AGORA-001
     fields:
-      release: v0.1.0
+      baseline: v0.1.0
 
   - id: AD-AGORA-006
     type: design-decision
@@ -108,7 +108,7 @@ artifacts:
       - type: satisfies
         target: REQ-AGORA-006
     fields:
-      release: v0.1.0
+      baseline: v0.1.0
 
   - id: AD-AGORA-007
     type: design-decision
@@ -132,7 +132,7 @@ artifacts:
       - type: satisfies
         target: REQ-AGORA-007
     fields:
-      release: v0.1.0
+      baseline: v0.1.0
 
   - id: AD-AGORA-008
     type: design-decision
@@ -153,7 +153,7 @@ artifacts:
       onto JetStream; host -> wasmtime 43 p3 async linker), adopted there in v0.3.0.
     tags: [architecture, build, wasi, bazel]
     fields:
-      release: v0.1.0
+      baseline: v0.1.0
     links:
       - type: satisfies
         target: REQ-AGORA-011
@@ -181,7 +181,7 @@ artifacts:
       domains); STPA severity drives constraint rigor.
     tags: [architecture, verification, stpa-sec, eu-ai-act]
     fields:
-      release: v0.1.0
+      baseline: v0.1.0
     links:
       - type: satisfies
         target: REQ-AGORA-007
@@ -203,7 +203,7 @@ artifacts:
       the structural layer the runtime cross-talk controls and the durable record build on.
     tags: [architecture, protocol]
     fields:
-      release: v0.1.0
+      baseline: v0.1.0
     links:
       - type: satisfies
         target: REQ-AGORA-008

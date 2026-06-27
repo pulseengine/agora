@@ -12,7 +12,7 @@ artifacts:
     fields:
       priority: must
       category: functional
-      release: v0.1.0
+      baseline: v0.1.0
 
   - id: REQ-AGORA-002
     type: requirement
@@ -28,7 +28,7 @@ artifacts:
     fields:
       priority: must
       category: functional
-      release: v0.1.0
+      baseline: v0.1.0
 
   - id: REQ-AGORA-003
     type: requirement
@@ -42,7 +42,7 @@ artifacts:
     fields:
       priority: must
       category: non-functional
-      release: v0.1.0
+      baseline: v0.1.0
 
   - id: REQ-AGORA-004
     type: requirement
@@ -56,7 +56,7 @@ artifacts:
     fields:
       priority: must
       category: constraint
-      release: v0.1.0
+      baseline: v0.1.0
 
   - id: REQ-AGORA-005
     type: requirement
@@ -70,7 +70,7 @@ artifacts:
     fields:
       priority: must
       category: constraint
-      release: v0.1.0
+      baseline: v0.1.0
 
   - id: REQ-AGORA-006
     type: requirement
@@ -84,7 +84,7 @@ artifacts:
     fields:
       priority: must
       category: non-functional
-      release: v0.1.0
+      baseline: v0.1.0
 
   - id: REQ-AGORA-007
     type: requirement
@@ -98,7 +98,7 @@ artifacts:
     fields:
       priority: must
       category: constraint
-      release: v0.3.0
+      baseline: v0.3.0
 
   - id: REQ-AGORA-008
     type: requirement
@@ -112,7 +112,7 @@ artifacts:
     fields:
       priority: must
       category: functional
-      release: v0.1.0
+      baseline: v0.1.0
 
   - id: REQ-AGORA-009
     type: requirement
@@ -126,7 +126,7 @@ artifacts:
     fields:
       priority: must
       category: functional
-      release: v0.3.0
+      baseline: v0.3.0
 
   - id: REQ-AGORA-010
     type: requirement
@@ -142,7 +142,7 @@ artifacts:
     fields:
       priority: must
       category: functional
-      release: v0.2.0
+      baseline: v0.2.0
 
   - id: REQ-AGORA-011
     type: requirement
@@ -162,7 +162,7 @@ artifacts:
     fields:
       priority: must
       category: non-functional
-      release: v0.1.0
+      baseline: v0.1.0
 
   # ---- Features --------------------------------------------------------------
   - id: FEAT-AGORA-SPIKE
@@ -179,7 +179,7 @@ artifacts:
     tags: [spike]
     fields:
       phase: phase-1
-      release: v0.1.0
+      baseline: v0.1.0
     links:
       - type: satisfies
         target: REQ-AGORA-001
@@ -210,7 +210,7 @@ artifacts:
     tags: [build, bazel, wasi]
     fields:
       phase: phase-1
-      release: v0.1.0
+      baseline: v0.1.0
     links:
       - type: satisfies
         target: REQ-AGORA-011

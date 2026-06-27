@@ -18,3 +18,13 @@ sources:
     format: generic-yaml
   - path: safety
     format: generic-yaml
+
+# Release scopes (rivet's native baseline mechanism — the `baseline:` field on
+# artifacts is schema-declared, unlike `release:` which is still REQ-214/draft).
+baselines:
+  - name: v0.1.0
+    description: Verified spike — cross-talk controls, WIT protocol, native WASI p2, hermetic Bazel build, STPA-Sec top of the V.
+  - name: v0.2.0
+    description: Five-track dogfood — witness MC/DC + scry verification of the wasm component (REQ-010, issue #8).
+  - name: v0.3.0
+    description: Durable spine — real NATS/JetStream transport + global ordering (REQ-009) and the thrum out-of-band kill (REQ-007).
