@@ -64,9 +64,13 @@ unconditional self-echo (12 dropped), hop-count TTL (cascade bounded, converged)
 idempotency, 6 signed facts → `facts/coordination.yaml`. See `README.md` for the
 run output and the lighter-vs-wasmCloud friction notes.
 
-**Stubbed seams:** NATS (in-mem bus Vec) · sigil (`sig` is an FNV stub; real
-`wsc sign` blocked on `pulseengine/sigil#164`) · rivet (facts as YAML) · thrum
-out-of-band kill (not built).
+**Durable spine is REAL:** the host runs on a NATS JetStream stream (`AGORA`) —
+global ordering (stream sequence), capability-scoping structural at the subject
+filter (no consumer subscribes to ungranted `secret-ops`), `Nats-Msg-Id` dedup,
+durable-consumer replay (REQ-AGORA-009). Run: `nats-server -js & cd host && cargo run`.
+
+**Remaining stubbed seams:** sigil (`sig` is an FNV stub; real `wsc sign` blocked on
+`pulseengine/sigil#164`) · rivet (facts as YAML) · thrum out-of-band kill (not built).
 
 ## 5. Open questions (research could not close — agora must decide)
 
