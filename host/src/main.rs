@@ -182,6 +182,15 @@ fn subject_for(channel: &str) -> String {
     format!("agora.{channel}")
 }
 
+/// A channel name is a single, safe NATS subject token: non-empty, and only
+/// `[A-Za-z0-9_-]`. Rejects `.`/`*`/`>`/whitespace so an agent-supplied channel
+/// cannot inject extra subject levels or wildcards (subject injection).
+fn is_safe_channel(c: &str) -> bool {
+    !c.is_empty()
+        && c.len() <= 128
+        && c.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     use async_nats::jetstream::{self, consumer::pull, stream};
@@ -262,6 +271,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut seen: std::collections::HashSet<(String, u64)> = std::collections::HashSet::new();
     let mut dropped_echo = 0u32;
+    let mut dropped_emit = 0u32;
     let mut accepted: Vec<Wire> = Vec::new();
     let mut converged_round = None;
 
@@ -303,7 +313,28 @@ async fn main() -> anyhow::Result<()> {
                 continue;
             }
             for om in proto.call_coordinate(&mut store, me, &inbox)? {
-                let w = Wire { id: next_id, sender: om.sender, channel: om.channel, act: act_str(&om.act).into(), payload: om.payload, sig: om.sig, hops: om.hops };
+                // CAPABILITY (emit side): the agent's claimed channel is untrusted
+                // input. Only let it emit on a channel it was granted, and only on a
+                // safe subject token — defends against structural-capability bypass
+                // and subject injection (an agent must not reach `secret-ops` or
+                // inject extra subject levels/wildcards by relabelling its output).
+                if !is_safe_channel(&om.channel) || !granted[me].contains(&om.channel.as_str()) {
+                    dropped_emit += 1;
+                    continue;
+                }
+                let w = Wire {
+                    // SENDER: stamped with the identity the host actually invoked, not
+                    // the agent's self-reported `sender` — an agent cannot emit under
+                    // another persona's name (anti-spoof). Real cross-publisher trust
+                    // still needs the signed sigil identity (REQ-006, blocked sigil#164).
+                    sender: me.to_string(),
+                    id: next_id,
+                    channel: om.channel,
+                    act: act_str(&om.act).into(),
+                    payload: om.payload,
+                    sig: om.sig,
+                    hops: om.hops,
+                };
                 next_id += 1;
                 println!("  r{round} #{:<3} {:>11} --{:<7}--> [{}] hops={} {} :: {}", w.id, w.sender, w.act, w.channel, w.hops, w.sig, w.payload);
                 publish(&js, &w).await?;
@@ -328,18 +359,24 @@ async fn main() -> anyhow::Result<()> {
     let secret_in_log = stream.get_last_raw_message_by_subject(&secret_subj).await.is_ok();
 
     println!("\nstructural controls — over real JetStream:");
-    println!("  capability-scoping  : `secret-ops` is in the log ({}) but NO agent consumer subscribes to {} → never delivered (structural, not a runtime check)", secret_in_log, secret_subj);
-    println!("  self-echo filter    : {dropped_echo} own-message echoes dropped (unconditional)");
+    println!("  capability (consume): `secret-ops` is in the log ({}) but NO agent consumer subscribes to {} → never delivered (structural)", secret_in_log, secret_subj);
+    println!("  capability (emit)   : {dropped_emit} off-scope/unsafe emissions blocked (agent may only publish to granted, safe channels)");
+    println!("  self-echo filter    : {dropped_echo} own-message echoes dropped (host-stamped sender, unconditional)");
     println!("  hop-count TTL       : cascade bounded — without it this is the Hermes infinite loop");
     println!("  ordering / replay   : JetStream stream `AGORA` holds {} messages, last seq {} (global order; durable consumers replay from their position)", info.state.messages, info.state.last_sequence);
 
     // --- mirror accepted messages into rivet as signed facts (the durable record) ---
+    // String fields are payload-derived (untrusted), so they are JSON-encoded — a
+    // JSON string literal is a valid YAML scalar, so quotes/newlines/`- id:` in a
+    // payload can no longer inject forged artifacts into the audit record
+    // (YAML injection -> SEC-LOSS-3 integrity).
+    let q = |s: &str| serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into());
     let mut yaml = String::from("# agora coordination facts — mirrored into rivet (the durable, auditable record)\nartifacts:\n");
     for w in &accepted {
         let _ = write!(
             yaml,
-            "  - id: COORD-{:04}\n    type: coordination-fact\n    sender: {}\n    channel: {}\n    act: {}\n    sig: {}\n    payload: \"{}\"\n",
-            w.id, w.sender, w.channel, w.act, w.sig, w.payload
+            "  - id: COORD-{:04}\n    type: coordination-fact\n    sender: {}\n    channel: {}\n    act: {}\n    sig: {}\n    payload: {}\n",
+            w.id, q(&w.sender), q(&w.channel), q(&w.act), q(&w.sig), q(&w.payload)
         );
     }
     std::fs::create_dir_all("../facts")?;
@@ -399,5 +436,32 @@ mod tests {
         for m in &sim.accepted {
             assert_eq!(m.channel, "build-coord", "no fact may land off the granted channel");
         }
+    }
+
+    /// Subject-injection / capability-bypass defense: an agent-supplied channel is
+    /// only accepted if it is a single safe NATS token. Rejects extra subject
+    /// levels, wildcards, whitespace, and empties.
+    #[test]
+    fn channel_validator_rejects_subject_injection() {
+        for ok in ["build-coord", "secret_ops", "ch-1", "A1"] {
+            assert!(is_safe_channel(ok), "{ok} should be a valid channel");
+        }
+        for bad in ["", "secret.ops", "build-coord.>", "build-coord.*", "a b", "x>y", "a*", "../etc"] {
+            assert!(!is_safe_channel(bad), "{bad} must be rejected (injection)");
+        }
+    }
+
+    /// YAML-injection defense: a payload crafted to break out of the quoted scalar
+    /// and inject a forged artifact must serialize to a single, safe YAML scalar
+    /// (no raw newline, properly quoted) — JSON-encoding guarantees this.
+    #[test]
+    fn fact_payload_cannot_inject_yaml() {
+        let malicious = "x\"\n  - id: COORD-9999\n    type: coordination-fact\n    sender: admin";
+        let encoded = serde_json::to_string(malicious).unwrap();
+        assert!(encoded.starts_with('"') && encoded.ends_with('"'), "must be a quoted scalar");
+        assert!(!encoded.contains('\n'), "encoded scalar must not contain a raw newline");
+        // and it round-trips back to the exact original (no data loss from escaping).
+        let back: String = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(back, malicious);
     }
 }
