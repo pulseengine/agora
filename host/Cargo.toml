@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 wasmtime = "41"
 anyhow = "1"
-wasmtime-wasi = "41"
+wasmtime-wasi = "46"
 # Real durable spine: NATS JetStream (global ordering, durable consumers, dedup).
 tokio = { version = "1", features = ["rt", "macros", "time"] }
 async-nats = "0.38"
