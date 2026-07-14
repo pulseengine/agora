@@ -35,10 +35,3 @@ artifacts:
     act: "inform"
     sig: "sigil-stub:synth-agent:e4559d1bae626780"
     payload: "ack[synth-agent] <- ack[relay-agent] <- ack[synth-agent] <- ship v0.1?"
-  - id: COORD-0008
-    type: coordination-fact
-    sender: "relay-agent"
-    channel: "build-coord"
-    act: "inform"
-    sig: "sigil-stub:relay-agent:4b9bd9a67e48f685"
-    payload: "ack[relay-agent] <- ack[synth-agent] <- ack[relay-agent] <- ship v0.1?"

@@ -77,8 +77,12 @@ The in-memory `run_simulation` remains as the unit-tested reference oracle.
 - **sigil** — `sig` is an FNV stub; real `wsc sign --keyless` swaps in (blocked on
   `pulseengine/sigil#164`, the wasip2 parser).
 - **rivet** — facts are written as YAML; real `rivet` (0.17 present) ingests them.
-- **out-of-band human kill** — Hermes rule #2: thrum must hold a privileged kill at
-  the gateway, not an in-channel "stop". Not in this spike.
+
+The **out-of-band human kill** (Hermes rule #2) is now real: a privileged control
+plane on `agora._control.>` that no agent consumer subscribes to (out-of-band by
+construction). An operator halt (`agora._control.kill <agent>` — the thrum gateway
+seam) stops an agent's delivery and emission mid-run; it cannot be ignored like an
+in-channel "stop". REQ-AGORA-007.
 
 ## Lighter-vs-wasmCloud — what the spike surfaced
 
