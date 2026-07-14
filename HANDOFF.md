@@ -69,8 +69,14 @@ global ordering (stream sequence), capability-scoping structural at the subject
 filter (no consumer subscribes to ungranted `secret-ops`), `Nats-Msg-Id` dedup,
 durable-consumer replay (REQ-AGORA-009). Run: `nats-server -js & cd host && cargo run`.
 
+**Out-of-band human kill is REAL:** a privileged control plane on `agora._control.>`
+(no agent consumer subscribes → out-of-band by construction). An operator publishes
+`agora._control.kill <agent>` (the thrum seam) and the host halts that agent's
+delivery + emission mid-run — it cannot ignore it. REQ-AGORA-007. Demonstrated:
+relay-agent halted by operator command while synth-agent continues.
+
 **Remaining stubbed seams:** sigil (`sig` is an FNV stub; real `wsc sign` blocked on
-`pulseengine/sigil#164`) · rivet (facts as YAML) · thrum out-of-band kill (not built).
+`pulseengine/sigil#164`) · rivet (facts as YAML).
 
 ## 5. Open questions (research could not close — agora must decide)
 

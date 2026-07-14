@@ -67,7 +67,7 @@ artifacts:
   - id: CA-KILL
     type: control-action
     title: Out-of-band human kill of an agent
-    status: draft
+    status: implemented
     description: >
       The privileged operator control action at the gateway (thrum): terminate a
       misbehaving agent independent of any in-channel message. Not yet built

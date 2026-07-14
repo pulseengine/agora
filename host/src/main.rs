@@ -269,16 +269,65 @@ async fn main() -> anyhow::Result<()> {
         consumers.push((me, consumer));
     }
 
+    // --- privileged control plane (the thrum gateway seam) — REQ-AGORA-007 ---
+    // An operator halt lives on `agora._control.>`. NO agent consumer subscribes to
+    // it (their filters are exact channel subjects), so it is out-of-band by
+    // construction: an agent cannot read, emit, or ignore it. This is the Hermes
+    // rule #2 control — a privileged kill the agent cannot treat as "just another turn".
+    let control = stream
+        .get_or_create_consumer(
+            "control-plane",
+            pull::Config {
+                durable_name: Some("control-plane".into()),
+                filter_subject: "agora._control.>".into(),
+                ack_policy: jetstream::consumer::AckPolicy::Explicit,
+                ..Default::default()
+            },
+        )
+        .await?;
+
     let mut seen: std::collections::HashSet<(String, u64)> = std::collections::HashSet::new();
+    let mut killed: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut dropped_echo = 0u32;
     let mut dropped_emit = 0u32;
     let mut accepted: Vec<Wire> = Vec::new();
     let mut converged_round = None;
 
     for round in 0..8u32 {
+        // Operator (thrum) demonstrates the out-of-band kill: after the first round,
+        // it halts `relay-agent` by publishing to the privileged control plane.
+        if round == 1 {
+            println!("\n  [operator] out-of-band kill → relay-agent (privileged control plane)\n");
+            js.publish("agora._control.kill".to_string(), "relay-agent".into()).await?.await?;
+        }
+
+        // Drain the privileged control plane and apply any halts before acting.
+        {
+            let mut ctl = control
+                .batch()
+                .max_messages(64)
+                .expires(Duration::from_millis(150))
+                .messages()
+                .await?;
+            while let Some(m) = ctl.next().await {
+                let m = m.map_err(|e| anyhow::anyhow!("{e}"))?;
+                let target = String::from_utf8_lossy(&m.payload).trim().to_string();
+                m.ack().await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                if !target.is_empty() {
+                    killed.insert(target);
+                }
+            }
+        }
+
         let mut produced = 0u32;
         for (me, consumer) in &consumers {
             let me = *me;
+            // OUT-OF-BAND KILL (REQ-AGORA-007, Hermes rule #2): a halted agent gets
+            // no delivery and emits nothing, regardless of channel traffic — it cannot
+            // ignore the operator the way it can ignore an in-band "stop" message.
+            if killed.contains(me) {
+                continue;
+            }
             // no-wait batch: take whatever is currently available on the granted subject
             let mut batch = consumer
                 .batch()
@@ -362,6 +411,11 @@ async fn main() -> anyhow::Result<()> {
     println!("  capability (consume): `secret-ops` is in the log ({}) but NO agent consumer subscribes to {} → never delivered (structural)", secret_in_log, secret_subj);
     println!("  capability (emit)   : {dropped_emit} off-scope/unsafe emissions blocked (agent may only publish to granted, safe channels)");
     println!("  self-echo filter    : {dropped_echo} own-message echoes dropped (host-stamped sender, unconditional)");
+    {
+        let mut k: Vec<&String> = killed.iter().collect();
+        k.sort();
+        println!("  out-of-band kill    : {:?} halted by operator on the privileged control plane (agents hold no handle to agora._control.>; cannot ignore it)", k);
+    }
     println!("  hop-count TTL       : cascade bounded — without it this is the Hermes infinite loop");
     println!("  ordering / replay   : JetStream stream `AGORA` holds {} messages, last seq {} (global order; durable consumers replay from their position)", info.state.messages, info.state.last_sequence);
 

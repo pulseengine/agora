@@ -89,7 +89,7 @@ artifacts:
   - id: REQ-AGORA-007
     type: requirement
     title: Out-of-band human control plane
-    status: draft
+    status: implemented
     description: >
       A privileged human STOP/kill shall exist at the gateway layer (via thrum),
       NOT as an in-channel message the agent may ignore. (Hermes rule #2 — an
