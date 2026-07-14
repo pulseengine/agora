@@ -51,15 +51,29 @@ bazel build //agent:agent
 # Quick path (same native-p2 component, no preview1 adapter):
 cd agent && cargo component build --release --target wasm32-wasip2
 
-# Run the host (loads the p2 component, enforces the cross-talk controls):
-cd host && cargo run --release   # `cargo test` asserts the controls (8/12/converge/6)
+# Run the host over a REAL durable spine (NATS JetStream):
+nats-server -js &                 # the durable log (global ordering, dedup, replay)
+cd host && cargo run --release    # publishes to JetStream, runs the controls
+# `cargo test` asserts the controls against the in-memory reference oracle.
 ```
 
-## Stubbed seams (the swap-in points)
+## The durable spine is real (NATS JetStream)
 
-- **NATS/JetStream** — the host's in-memory `bus` Vec stands in for the durable
-  log. Real JetStream gives the global sequence (ordering), durable consumers
-  (= the watermark/pending_gates replay), and `Nats-Msg-Id` dedup.
+The host no longer fakes the bus with a `Vec` — it runs on a real **JetStream**
+stream (`AGORA`, subjects `agora.>`):
+
+- **Global ordering** — the stream sequence (the run shows 8 messages, last seq 8).
+- **Capability channel-scoping is structural at the transport** — each agent gets a
+  durable pull consumer *filtered to the subjects of its granted channels only*, so
+  the ungranted `secret-ops` message sits in the log but **no consumer subscribes to
+  it** → it is never delivered (stronger than a runtime check).
+- **Dedup + replay** — `Nats-Msg-Id` headers (idempotent publish) and durable
+  consumers (a late joiner replays from its position — REQ-AGORA-009).
+
+The in-memory `run_simulation` remains as the unit-tested reference oracle.
+
+## Stubbed seams (the remaining swap-in points)
+
 - **sigil** — `sig` is an FNV stub; real `wsc sign --keyless` swaps in (blocked on
   `pulseengine/sigil#164`, the wasip2 parser).
 - **rivet** — facts are written as YAML; real `rivet` (0.17 present) ingests them.

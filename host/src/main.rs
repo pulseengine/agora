@@ -10,7 +10,6 @@
 //!      forever (the Hermes infinite-ack-loop).
 //! Every accepted message is mirrored as a signed fact (the rivet durable record).
 
-use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Config, Engine, Store};
@@ -45,8 +44,9 @@ fn act_str(a: &Act) -> &'static str {
     }
 }
 
-/// The measurable outcome of one simulation run — the spike's verification evidence
-/// as data, so `main` can print it AND the test suite can assert on it.
+/// The measurable outcome of one in-memory simulation run — the verified reference
+/// oracle. `main` now runs over real JetStream; this stays as the unit-test model.
+#[cfg(test)]
 struct SimResult {
     /// Deliveries of an ungranted channel (`secret-ops`) the capability layer blocked.
     dropped_caps: u32,
@@ -60,9 +60,11 @@ struct SimResult {
     rounds: Vec<Vec<Message>>,
 }
 
-/// Run the bus simulation against the real agent component and return the measured
-/// outcome. No I/O side effects (fact-writing lives in `main`) so it is testable.
+/// Run the in-memory bus simulation against the real agent component and return the
+/// measured outcome. No I/O side effects, so it is testable.
+#[cfg(test)]
 fn run_simulation() -> anyhow::Result<SimResult> {
+    use std::collections::{HashMap, HashSet};
     // --- load the agent component on wasmtime ---
     let mut config = Config::new();
     config.wasm_component_model(true);
@@ -140,38 +142,259 @@ fn run_simulation() -> anyhow::Result<SimResult> {
     Ok(SimResult { dropped_caps, dropped_echo, accepted, converged_round, rounds })
 }
 
-fn main() -> anyhow::Result<()> {
-    println!("agora spike — 2 named agents on `build-coord`; `secret-ops` is ungranted\n");
+// ===========================================================================
+// Real durable spine: NATS JetStream.
+//
+// The in-memory `run_simulation` above is the verified reference oracle (unit-
+// tested). `main` runs the SAME coordination logic over a real JetStream stream,
+// which supplies what the Vec faked: global ordering (stream sequence), durable
+// consumers (replay), and `Nats-Msg-Id` dedup. Capability channel-scoping
+// becomes STRUCTURAL at the subject filter — an agent's consumer is created only
+// for the subjects of channels it was granted, so an ungranted channel
+// (`secret-ops`) is never delivered because no consumer subscribes to it.
+// ===========================================================================
 
-    let sim = run_simulation()?;
+use serde::{Deserialize, Serialize};
 
-    for (round, msgs) in sim.rounds.iter().enumerate() {
-        for m in msgs {
-            println!("  r{round} #{:<3} {:>11} --{:<7}--> [{}] hops={} {} :: {}", m.id, m.sender, act_str(&m.act), m.channel, m.hops, m.sig, m.payload);
+/// JSON wire form of a coordination message (the bindgen `Message` is not serde).
+#[derive(Serialize, Deserialize)]
+struct Wire {
+    id: u64,
+    sender: String,
+    channel: String,
+    act: String,
+    payload: String,
+    sig: String,
+    hops: u32,
+}
+
+fn parse_act(s: &str) -> Act {
+    match s {
+        "request" => Act::Request,
+        "propose" => Act::Propose,
+        "agree" => Act::Agree,
+        "refuse" => Act::Refuse,
+        _ => Act::Inform,
+    }
+}
+
+fn subject_for(channel: &str) -> String {
+    format!("agora.{channel}")
+}
+
+/// A channel name is a single, safe NATS subject token: non-empty, and only
+/// `[A-Za-z0-9_-]`. Rejects `.`/`*`/`>`/whitespace so an agent-supplied channel
+/// cannot inject extra subject levels or wildcards (subject injection).
+fn is_safe_channel(c: &str) -> bool {
+    !c.is_empty()
+        && c.len() <= 128
+        && c.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> anyhow::Result<()> {
+    use async_nats::jetstream::{self, consumer::pull, stream};
+    use futures::StreamExt;
+    use std::time::Duration;
+
+    let url = std::env::var("NATS_URL").unwrap_or_else(|_| "127.0.0.1:4222".into());
+    println!("agora — durable spine on NATS JetStream ({url})");
+    println!("2 named agents on `build-coord`; `secret-ops` is ungranted (no consumer subscribes)\n");
+
+    // --- connect + ensure the AGORA stream (the durable, ordered log) ---
+    let client = async_nats::connect(&url).await?;
+    let js = jetstream::new(client);
+    let stream = js
+        .get_or_create_stream(stream::Config {
+            name: "AGORA".into(),
+            subjects: vec!["agora.>".into()],
+            // dedup window: a re-published Nats-Msg-Id within this window is dropped.
+            duplicate_window: Duration::from_secs(120),
+            ..Default::default()
+        })
+        .await?;
+    stream.purge().await?; // deterministic demo run
+
+    // --- capability table: which channels each agent was GRANTED ---
+    let agents = ["synth-agent", "relay-agent"];
+    let granted: std::collections::HashMap<&str, Vec<&str>> = [
+        ("synth-agent", vec!["build-coord"]),
+        ("relay-agent", vec!["build-coord"]),
+    ]
+    .into_iter()
+    .collect();
+
+    // --- publish the seeds (with Nats-Msg-Id for dedup) ---
+    let mut next_id: u64 = 1;
+    let seeds = [
+        Wire { id: 1, sender: "maintainer".into(), channel: "build-coord".into(), act: "request".into(), payload: "ship v0.1?".into(), sig: "human".into(), hops: 3 },
+        Wire { id: 2, sender: "maintainer".into(), channel: "secret-ops".into(), act: "inform".into(), payload: "SECRET: rotate signing keys".into(), sig: "human".into(), hops: 3 },
+    ];
+    for w in &seeds {
+        publish(&js, w).await?;
+        next_id = next_id.max(w.id + 1);
+    }
+
+    // --- one wasm component instance, reused across rounds ---
+    let mut config = Config::new();
+    config.wasm_component_model(true);
+    let engine = Engine::new(&config)?;
+    let component = Component::from_file(&engine, AGENT_WASM)?;
+    let mut linker: Linker<State> = Linker::new(&engine);
+    wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
+    let state = State { ctx: WasiCtxBuilder::new().inherit_stdio().build(), table: ResourceTable::new() };
+    let mut store = Store::new(&engine, state);
+    let agent = Agent::instantiate(&mut store, &component, &linker)?;
+    let proto = agent.agora_agent_protocol();
+
+    // --- one durable pull consumer per agent, FILTERED to its granted subjects ---
+    // This is capability-scoping made structural: no consumer exists for any
+    // channel an agent was not granted, so those messages are never delivered.
+    let mut consumers = Vec::new();
+    for me in agents {
+        // every agent here is granted exactly `build-coord`; the filter encodes it.
+        let subjects: Vec<&str> = granted[me].clone();
+        let filter = subject_for(subjects[0]); // single granted channel in this spike
+        let consumer = stream
+            .get_or_create_consumer(
+                &format!("agent-{me}"),
+                pull::Config {
+                    durable_name: Some(format!("agent-{me}")),
+                    filter_subject: filter,
+                    ack_policy: jetstream::consumer::AckPolicy::Explicit,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        consumers.push((me, consumer));
+    }
+
+    let mut seen: std::collections::HashSet<(String, u64)> = std::collections::HashSet::new();
+    let mut dropped_echo = 0u32;
+    let mut dropped_emit = 0u32;
+    let mut accepted: Vec<Wire> = Vec::new();
+    let mut converged_round = None;
+
+    for round in 0..8u32 {
+        let mut produced = 0u32;
+        for (me, consumer) in &consumers {
+            let me = *me;
+            // no-wait batch: take whatever is currently available on the granted subject
+            let mut batch = consumer
+                .batch()
+                .max_messages(256)
+                .expires(Duration::from_millis(250))
+                .messages()
+                .await?;
+
+            let mut inbox: Vec<Message> = Vec::new();
+            while let Some(msg) = batch.next().await {
+                let msg = msg.map_err(|e| anyhow::anyhow!("{e}"))?;
+                let w: Wire = serde_json::from_slice(&msg.payload)?;
+                msg.ack().await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                if w.sender == me {
+                    dropped_echo += 1; // SELF-ECHO: unconditional
+                    continue;
+                }
+                if !seen.insert((me.to_string(), w.id)) {
+                    continue; // IDEMPOTENCY (belt-and-suspenders to JetStream dedup)
+                }
+                inbox.push(Message {
+                    id: w.id,
+                    sender: w.sender,
+                    channel: w.channel,
+                    act: parse_act(&w.act),
+                    payload: w.payload,
+                    sig: w.sig,
+                    hops: w.hops,
+                });
+            }
+            if inbox.is_empty() {
+                continue;
+            }
+            for om in proto.call_coordinate(&mut store, me, &inbox)? {
+                // CAPABILITY (emit side): the agent's claimed channel is untrusted
+                // input. Only let it emit on a channel it was granted, and only on a
+                // safe subject token — defends against structural-capability bypass
+                // and subject injection (an agent must not reach `secret-ops` or
+                // inject extra subject levels/wildcards by relabelling its output).
+                if !is_safe_channel(&om.channel) || !granted[me].contains(&om.channel.as_str()) {
+                    dropped_emit += 1;
+                    continue;
+                }
+                let w = Wire {
+                    // SENDER: stamped with the identity the host actually invoked, not
+                    // the agent's self-reported `sender` — an agent cannot emit under
+                    // another persona's name (anti-spoof). Real cross-publisher trust
+                    // still needs the signed sigil identity (REQ-006, blocked sigil#164).
+                    sender: me.to_string(),
+                    id: next_id,
+                    channel: om.channel,
+                    act: act_str(&om.act).into(),
+                    payload: om.payload,
+                    sig: om.sig,
+                    hops: om.hops,
+                };
+                next_id += 1;
+                println!("  r{round} #{:<3} {:>11} --{:<7}--> [{}] hops={} {} :: {}", w.id, w.sender, w.act, w.channel, w.hops, w.sig, w.payload);
+                publish(&js, &w).await?;
+                accepted.push(w);
+                produced += 1;
+            }
+        }
+        if produced == 0 {
+            converged_round = Some(round);
+            break;
         }
     }
-    if let Some(round) = sim.converged_round {
+
+    if let Some(round) = converged_round {
         println!("\nround {round}: quiet — converged (cascade died at the hop limit).");
     }
 
-    println!("\nstructural controls fired this run:");
-    println!("  capability-scoping  : {} deliveries of `secret-ops` blocked (agents hold no handle)", sim.dropped_caps);
-    println!("  self-echo filter    : {} own-message echoes dropped (unconditional)", sim.dropped_echo);
+    // --- JetStream evidence: what the durable spine actually holds ---
+    let info = stream.get_info().await?;
+    let secret_subj = subject_for("secret-ops");
+    // the ungranted message IS durably in the log (proving it was published) ...
+    let secret_in_log = stream.get_last_raw_message_by_subject(&secret_subj).await.is_ok();
+
+    println!("\nstructural controls — over real JetStream:");
+    println!("  capability (consume): `secret-ops` is in the log ({}) but NO agent consumer subscribes to {} → never delivered (structural)", secret_in_log, secret_subj);
+    println!("  capability (emit)   : {dropped_emit} off-scope/unsafe emissions blocked (agent may only publish to granted, safe channels)");
+    println!("  self-echo filter    : {dropped_echo} own-message echoes dropped (host-stamped sender, unconditional)");
     println!("  hop-count TTL       : cascade bounded — without it this is the Hermes infinite loop");
+    println!("  ordering / replay   : JetStream stream `AGORA` holds {} messages, last seq {} (global order; durable consumers replay from their position)", info.state.messages, info.state.last_sequence);
 
     // --- mirror accepted messages into rivet as signed facts (the durable record) ---
+    // String fields are payload-derived (untrusted), so they are JSON-encoded — a
+    // JSON string literal is a valid YAML scalar, so quotes/newlines/`- id:` in a
+    // payload can no longer inject forged artifacts into the audit record
+    // (YAML injection -> SEC-LOSS-3 integrity).
+    let q = |s: &str| serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into());
     let mut yaml = String::from("# agora coordination facts — mirrored into rivet (the durable, auditable record)\nartifacts:\n");
-    for m in &sim.accepted {
+    for w in &accepted {
         let _ = write!(
             yaml,
-            "  - id: COORD-{:04}\n    type: coordination-fact\n    sender: {}\n    channel: {}\n    act: {}\n    sig: {}\n    payload: \"{}\"\n",
-            m.id, m.sender, m.channel, act_str(&m.act), m.sig, m.payload
+            "  - id: COORD-{:04}\n    type: coordination-fact\n    sender: {}\n    channel: {}\n    act: {}\n    sig: {}\n    payload: {}\n",
+            w.id, q(&w.sender), q(&w.channel), q(&w.act), q(&w.sig), q(&w.payload)
         );
     }
     std::fs::create_dir_all("../facts")?;
     std::fs::write("../facts/coordination.yaml", &yaml)?;
-    println!("\nrivet record: wrote {} signed facts → facts/coordination.yaml", sim.accepted.len());
+    println!("\nrivet record: wrote {} signed facts → facts/coordination.yaml", accepted.len());
 
+    Ok(())
+}
+
+/// Publish a message to its channel subject with a `Nats-Msg-Id` for JetStream
+/// dedup, and await the publish ack (so we know it is durably in the log).
+async fn publish(js: &async_nats::jetstream::Context, w: &Wire) -> anyhow::Result<()> {
+    let mut headers = async_nats::HeaderMap::new();
+    headers.insert("Nats-Msg-Id", w.id.to_string().as_str());
+    let payload = serde_json::to_vec(w)?;
+    js.publish_with_headers(subject_for(&w.channel), headers, payload.into())
+        .await?
+        .await?;
     Ok(())
 }
 
@@ -213,5 +436,32 @@ mod tests {
         for m in &sim.accepted {
             assert_eq!(m.channel, "build-coord", "no fact may land off the granted channel");
         }
+    }
+
+    /// Subject-injection / capability-bypass defense: an agent-supplied channel is
+    /// only accepted if it is a single safe NATS token. Rejects extra subject
+    /// levels, wildcards, whitespace, and empties.
+    #[test]
+    fn channel_validator_rejects_subject_injection() {
+        for ok in ["build-coord", "secret_ops", "ch-1", "A1"] {
+            assert!(is_safe_channel(ok), "{ok} should be a valid channel");
+        }
+        for bad in ["", "secret.ops", "build-coord.>", "build-coord.*", "a b", "x>y", "a*", "../etc"] {
+            assert!(!is_safe_channel(bad), "{bad} must be rejected (injection)");
+        }
+    }
+
+    /// YAML-injection defense: a payload crafted to break out of the quoted scalar
+    /// and inject a forged artifact must serialize to a single, safe YAML scalar
+    /// (no raw newline, properly quoted) — JSON-encoding guarantees this.
+    #[test]
+    fn fact_payload_cannot_inject_yaml() {
+        let malicious = "x\"\n  - id: COORD-9999\n    type: coordination-fact\n    sender: admin";
+        let encoded = serde_json::to_string(malicious).unwrap();
+        assert!(encoded.starts_with('"') && encoded.ends_with('"'), "must be a quoted scalar");
+        assert!(!encoded.contains('\n'), "encoded scalar must not contain a raw newline");
+        // and it round-trips back to the exact original (no data loss from escaping).
+        let back: String = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(back, malicious);
     }
 }
