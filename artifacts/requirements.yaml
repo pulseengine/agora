@@ -164,6 +164,23 @@ artifacts:
       category: non-functional
       baseline: v0.1.0
 
+  - id: REQ-AGORA-012
+    type: requirement
+    title: Bounded decision — owner-decides within a deadline
+    status: implemented
+    description: >
+      Coordination shall drive toward a single decision owned by an accountable
+      agent and finalized within a deadline. The owner's call is authoritative
+      (owner-decides breaks ties, so deliberation cannot deadlock), and the deadline
+      bounds the WHOLE deliberation — a control distinct from the per-message hop
+      budget (which bounds a single message's cascade). Prevents the failure mode
+      where agents deliberate without ever concluding.
+    tags: [coordination, runtime]
+    fields:
+      priority: must
+      category: functional
+      baseline: v0.3.0
+
   # ---- Features --------------------------------------------------------------
   - id: FEAT-AGORA-SPIKE
     type: feature

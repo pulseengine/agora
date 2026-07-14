@@ -70,6 +70,16 @@ stream (`AGORA`, subjects `agora.>`):
 - **Dedup + replay** — `Nats-Msg-Id` headers (idempotent publish) and durable
   consumers (a late joiner replays from its position — REQ-AGORA-009).
 
+The coordination also **concludes**, it doesn't just peter out:
+
+- **Bounded decision (owner-decides + deadline, REQ-AGORA-012)** — the exchange
+  drives toward one decision owned by an accountable agent and finalized by a
+  deadline. The deadline bounds the *whole deliberation* (distinct from the hop
+  budget, which bounds one message's cascade); owner-decides breaks ties so it can't
+  deadlock. Default run: `owner synth-agent decides "ship v0.1?" = AGREED`.
+- **Out-of-band kill** is opt-in per run: `AGORA_DEMO_KILL=relay-agent cargo run`
+  halts that agent via the privileged control plane mid-deliberation.
+
 The in-memory `run_simulation` remains as the unit-tested reference oracle.
 
 ## Stubbed seams (the remaining swap-in points)

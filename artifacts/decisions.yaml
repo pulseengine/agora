@@ -116,13 +116,16 @@ artifacts:
     status: accepted
     description: >
       Cross-talk classes not preventable structurally get runtime controls:
-      unconditional self-echo filter, hop-count/TTL, idempotency, and an
-      out-of-band human kill at the gateway.
+      unconditional self-echo filter, hop-count/TTL, idempotency, an out-of-band
+      human kill at the gateway, and a bounded decision (owner-decides + deadline)
+      so deliberation concludes rather than looping.
     rationale: >
       The Hermes (#32791) postmortem shows these failures are real and that
       conditional/in-band controls fail (a per-channel override and an in-band STOP
       both failed); encoding them as unconditional, out-of-band, bounded controls is
-      the validated mitigation.
+      the validated mitigation. Bounding a single message's cascade (hops) is not the
+      same as bounding a whole deliberation — the decision deadline + owner-decides
+      supplies the latter.
     tags: [architecture, cross-talk]
     links:
       - type: satisfies
@@ -131,6 +134,8 @@ artifacts:
         target: REQ-AGORA-005
       - type: satisfies
         target: REQ-AGORA-007
+      - type: satisfies
+        target: REQ-AGORA-012
     fields:
       baseline: v0.1.0
 
