@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-wasmtime = "41"
+wasmtime = "46"
 anyhow = "1"
 wasmtime-wasi = "41"
 # Real durable spine: NATS JetStream (global ordering, durable consumers, dedup).
