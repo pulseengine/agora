@@ -218,6 +218,20 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
 
+    // --- lease store: JetStream KV for optimistic-commit task leases (REQ-013) ---
+    // A task must be handled once even though several agents can see it. An agent
+    // optimistically claims it by atomically CREATE-ing its lease key: the first
+    // wins and does the work; the rest see the key exists and skip (roll back) — a
+    // distributed mutex over the durable spine, so no duplicate work.
+    let _ = js.delete_key_value("AGORA_LEASES").await;
+    let leases = js
+        .create_key_value(jetstream::kv::Config {
+            bucket: "AGORA_LEASES".into(),
+            history: 1,
+            ..Default::default()
+        })
+        .await?;
+
     // --- capability table: which channels each agent was GRANTED ---
     let agents = ["synth-agent", "relay-agent"];
     let granted: std::collections::HashMap<&str, Vec<&str>> = [
@@ -232,6 +246,8 @@ async fn main() -> anyhow::Result<()> {
     let seeds = [
         Wire { id: 1, sender: "maintainer".into(), channel: "build-coord".into(), act: "request".into(), payload: "ship v0.1?".into(), sig: "human".into(), hops: 3 },
         Wire { id: 2, sender: "maintainer".into(), channel: "secret-ops".into(), act: "inform".into(), payload: "SECRET: rotate signing keys".into(), sig: "human".into(), hops: 3 },
+        // a unit of work both agents can see — must be handled exactly once (lease).
+        Wire { id: 3, sender: "maintainer".into(), channel: "build-coord".into(), act: "request".into(), payload: "TASK#42: cut the release".into(), sig: "human".into(), hops: 1 },
     ];
     for w in &seeds {
         publish(&js, w).await?;
@@ -293,6 +309,8 @@ async fn main() -> anyhow::Result<()> {
     let mut killed: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut dropped_echo = 0u32;
     let mut dropped_emit = 0u32;
+    let mut dropped_dup = 0u32; // task attempts that lost the lease (duplicate work prevented)
+    let mut task_done: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut accepted: Vec<Wire> = Vec::new();
     // --- decision policy: owner-decides + deadline (REQ-AGORA-012) ---
     // The coordination is not an open-ended echo — it drives toward ONE decision,
@@ -363,6 +381,34 @@ async fn main() -> anyhow::Result<()> {
                 }
                 if !seen.insert((me.to_string(), w.id)) {
                     continue; // IDEMPOTENCY (belt-and-suspenders to JetStream dedup)
+                }
+                // LEASE / OPTIMISTIC-COMMIT (REQ-AGORA-013): a task both agents can
+                // see must be handled once. Atomically CREATE the lease key — win and
+                // do the work, or lose (key exists) and skip. No duplicate work.
+                if w.payload.starts_with("TASK") {
+                    let task_id = w.payload.split(':').next().unwrap_or(&w.payload).trim().to_string();
+                    // NATS KV keys allow only [-/_=.a-zA-Z0-9]; map anything else (e.g. `#`).
+                    let key: String = task_id
+                        .chars()
+                        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' })
+                        .collect();
+                    match leases.create(key.as_str(), me.to_string().into()).await {
+                        Ok(_) => {
+                            println!("  r{round} {me:>11} acquired lease [{task_id}] → handling (optimistic-commit)");
+                            task_done.insert(task_id.clone(), me.to_string());
+                            let tw = Wire { id: next_id, sender: me.to_string(), channel: "build-coord".into(), act: "inform".into(), payload: format!("HANDLED {task_id}"), sig: format!("sigil-stub:{me}:task"), hops: 0 };
+                            next_id += 1;
+                            publish(&js, &tw).await?;
+                            accepted.push(tw);
+                            engaged.insert(me.to_string());
+                            produced += 1;
+                        }
+                        Err(_) => {
+                            dropped_dup += 1;
+                            println!("  r{round} {me:>11} lost lease   [{task_id}] → skip (duplicate work prevented)");
+                        }
+                    }
+                    continue;
                 }
                 inbox.push(Message {
                     id: w.id,
@@ -463,6 +509,11 @@ async fn main() -> anyhow::Result<()> {
     }
     println!("  hop-count TTL       : per-message cascade bound (the Hermes infinite-loop guard)");
     println!("  decision deadline   : owner `{decision_owner}` finalized \"{decision_topic}\" by deadline r{decision_deadline} (owner-decides; bounds the whole deliberation, not just one message)");
+    {
+        let mut done: Vec<String> = task_done.iter().map(|(t, a)| format!("{t}→{a}")).collect();
+        done.sort();
+        println!("  lease / opt-commit  : {dropped_dup} duplicate task attempt(s) prevented; handled once: {done:?} (JetStream KV atomic create = distributed mutex)");
+    }
     println!("  ordering / replay   : JetStream stream `AGORA` holds {} messages, last seq {} (global order; durable consumers replay from their position)", info.state.messages, info.state.last_sequence);
 
     // --- mirror accepted messages into rivet as signed facts (the durable record) ---

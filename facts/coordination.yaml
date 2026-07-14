@@ -1,41 +1,55 @@
 # agora coordination facts — mirrored into rivet (the durable, auditable record)
 artifacts:
-  - id: COORD-0003
+  - id: COORD-0004
+    type: coordination-fact
+    sender: "synth-agent"
+    channel: "build-coord"
+    act: "inform"
+    sig: "sigil-stub:synth-agent:task"
+    payload: "HANDLED TASK#42"
+  - id: COORD-0005
     type: coordination-fact
     sender: "synth-agent"
     channel: "build-coord"
     act: "inform"
     sig: "sigil-stub:synth-agent:2cfdec1b3d4708f1"
     payload: "ack[synth-agent] <- ship v0.1?"
-  - id: COORD-0004
+  - id: COORD-0006
     type: coordination-fact
     sender: "relay-agent"
     channel: "build-coord"
     act: "inform"
     sig: "sigil-stub:relay-agent:0e611556265e0734"
     payload: "ack[relay-agent] <- ship v0.1?"
-  - id: COORD-0005
+  - id: COORD-0007
     type: coordination-fact
     sender: "relay-agent"
     channel: "build-coord"
     act: "inform"
     sig: "sigil-stub:relay-agent:b1b8c898b8121942"
     payload: "ack[relay-agent] <- ack[synth-agent] <- ship v0.1?"
-  - id: COORD-0006
+  - id: COORD-0008
     type: coordination-fact
     sender: "synth-agent"
     channel: "build-coord"
     act: "inform"
     sig: "sigil-stub:synth-agent:63e85b8eddd2c53e"
     payload: "ack[synth-agent] <- ack[relay-agent] <- ship v0.1?"
-  - id: COORD-0007
+  - id: COORD-0009
     type: coordination-fact
     sender: "synth-agent"
     channel: "build-coord"
     act: "inform"
     sig: "sigil-stub:synth-agent:e4559d1bae626780"
     payload: "ack[synth-agent] <- ack[relay-agent] <- ack[synth-agent] <- ship v0.1?"
-  - id: COORD-0008
+  - id: COORD-0010
+    type: coordination-fact
+    sender: "relay-agent"
+    channel: "build-coord"
+    act: "inform"
+    sig: "sigil-stub:relay-agent:4b9bd9a67e48f685"
+    payload: "ack[relay-agent] <- ack[synth-agent] <- ack[relay-agent] <- ship v0.1?"
+  - id: COORD-0011
     type: coordination-fact
     sender: "synth-agent"
     channel: "build-coord"

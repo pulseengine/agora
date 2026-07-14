@@ -79,6 +79,11 @@ The coordination also **concludes**, it doesn't just peter out:
   deadlock. Default run: `owner synth-agent decides "ship v0.1?" = AGREED`.
 - **Out-of-band kill** is opt-in per run: `AGORA_DEMO_KILL=relay-agent cargo run`
   halts that agent via the privileged control plane mid-deliberation.
+- **Lease / optimistic-commit (REQ-AGORA-013)** — a task both agents can see is
+  handled once: each optimistically claims it by atomically creating its lease key
+  in a JetStream KV bucket; the first wins and does the work, the rest skip
+  (`TASK#42 → synth-agent`; relay-agent's duplicate attempt prevented). A distributed
+  mutex over the durable spine — no coordinator, no ambient lock.
 
 The in-memory `run_simulation` remains as the unit-tested reference oracle.
 

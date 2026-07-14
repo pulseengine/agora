@@ -181,6 +181,22 @@ artifacts:
       category: functional
       baseline: v0.3.0
 
+  - id: REQ-AGORA-013
+    type: requirement
+    title: Lease / optimistic-commit to prevent duplicate work
+    status: implemented
+    description: >
+      A unit of work visible to several agents shall be handled exactly once. An
+      agent optimistically claims the task by atomically acquiring its lease; the
+      first winner does the work and the rest observe the claim and skip (roll back).
+      Implemented as a distributed mutex over the durable spine (JetStream KV atomic
+      create), so no coordinator or ambient lock is required.
+    tags: [coordination, runtime]
+    fields:
+      priority: must
+      category: functional
+      baseline: v0.3.0
+
   # ---- Features --------------------------------------------------------------
   - id: FEAT-AGORA-SPIKE
     type: feature
