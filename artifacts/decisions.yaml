@@ -117,8 +117,9 @@ artifacts:
     description: >
       Cross-talk classes not preventable structurally get runtime controls:
       unconditional self-echo filter, hop-count/TTL, idempotency, an out-of-band
-      human kill at the gateway, and a bounded decision (owner-decides + deadline)
-      so deliberation concludes rather than looping.
+      human kill at the gateway, a bounded decision (owner-decides + deadline) so
+      deliberation concludes rather than looping, and a lease/optimistic-commit so a
+      shared task is done once rather than duplicated.
     rationale: >
       The Hermes (#32791) postmortem shows these failures are real and that
       conditional/in-band controls fail (a per-channel override and an in-band STOP
@@ -136,6 +137,8 @@ artifacts:
         target: REQ-AGORA-007
       - type: satisfies
         target: REQ-AGORA-012
+      - type: satisfies
+        target: REQ-AGORA-013
     fields:
       baseline: v0.1.0
 
