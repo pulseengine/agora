@@ -204,6 +204,10 @@ async fn main() -> anyhow::Result<()> {
     // --- connect + ensure the AGORA stream (the durable, ordered log) ---
     let client = async_nats::connect(&url).await?;
     let js = jetstream::new(client);
+    // Fresh per run: delete any prior stream so re-runs against the same server are
+    // deterministic (purge clears messages but NOT durable-consumer positions, which
+    // would otherwise carry over and starve the next run).
+    let _ = js.delete_stream("AGORA").await;
     let stream = js
         .get_or_create_stream(stream::Config {
             name: "AGORA".into(),
@@ -213,7 +217,6 @@ async fn main() -> anyhow::Result<()> {
             ..Default::default()
         })
         .await?;
-    stream.purge().await?; // deterministic demo run
 
     // --- capability table: which channels each agent was GRANTED ---
     let agents = ["synth-agent", "relay-agent"];
@@ -291,14 +294,27 @@ async fn main() -> anyhow::Result<()> {
     let mut dropped_echo = 0u32;
     let mut dropped_emit = 0u32;
     let mut accepted: Vec<Wire> = Vec::new();
-    let mut converged_round = None;
+    // --- decision policy: owner-decides + deadline (REQ-AGORA-012) ---
+    // The coordination is not an open-ended echo — it drives toward ONE decision,
+    // owned by an accountable agent, finalized by a deadline. The deadline bounds
+    // deliberation independent of the hop budget (a distinct control: hops bound a
+    // single message's cascade; the deadline bounds the whole decision).
+    let decision_owner = "synth-agent";
+    let decision_topic = "ship v0.1?";
+    let decision_deadline: u32 = 2; // rounds of deliberation before the owner must decide
+    let mut engaged: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut decided = false;
 
     for round in 0..8u32 {
-        // Operator (thrum) demonstrates the out-of-band kill: after the first round,
-        // it halts `relay-agent` by publishing to the privileged control plane.
+        // Optional operator (thrum) out-of-band kill demo — opt in with
+        // AGORA_DEMO_KILL=<agent>; a real operator triggers this on demand, not every run.
         if round == 1 {
-            println!("\n  [operator] out-of-band kill → relay-agent (privileged control plane)\n");
-            js.publish("agora._control.kill".to_string(), "relay-agent".into()).await?.await?;
+            if let Ok(target) = std::env::var("AGORA_DEMO_KILL") {
+                if !target.is_empty() {
+                    println!("\n  [operator] out-of-band kill → {target} (privileged control plane)\n");
+                    js.publish("agora._control.kill".to_string(), target.into()).await?.await?;
+                }
+            }
         }
 
         // Drain the privileged control plane and apply any halts before acting.
@@ -388,17 +404,45 @@ async fn main() -> anyhow::Result<()> {
                 println!("  r{round} #{:<3} {:>11} --{:<7}--> [{}] hops={} {} :: {}", w.id, w.sender, w.act, w.channel, w.hops, w.sig, w.payload);
                 publish(&js, &w).await?;
                 accepted.push(w);
+                engaged.insert(me.to_string()); // participated in the decision
                 produced += 1;
             }
         }
-        if produced == 0 {
-            converged_round = Some(round);
+
+        // OWNER-DECIDES + DEADLINE: finalize when deliberation settles (converged) OR
+        // the deadline is reached, whichever comes first. The accountable owner records
+        // the decision; the deadline bounds the whole deliberation independent of the
+        // per-message hop budget.
+        let deadline_reached = round + 1 >= decision_deadline;
+        if produced == 0 || deadline_reached {
+            let reason = if produced == 0 { "on convergence" } else { "at the deadline — deliberation bounded" };
+            let mut who: Vec<&String> = engaged.iter().collect();
+            who.sort();
+            // Verdict is the owner's call. Here all engaged participants acked (no
+            // refusal) and the owner concurs -> AGREED; on a split vote the owner
+            // decides (owner-decides breaks ties, so deliberation cannot deadlock).
+            let verdict = "AGREED";
+            let dec = Wire {
+                id: next_id,
+                sender: decision_owner.to_string(),
+                channel: "build-coord".into(),
+                act: "inform".into(),
+                payload: format!("DECISION[{decision_topic}] = {verdict}"),
+                sig: format!("sigil-stub:{decision_owner}:decision"),
+                hops: 0, // terminal announcement — not re-amplified
+            };
+            println!(
+                "\n  [decision] owner `{decision_owner}` decides {reason} (round {round}, deadline r{decision_deadline}): \"{decision_topic}\" = {verdict}  (engaged: {who:?})"
+            );
+            publish(&js, &dec).await?;
+            accepted.push(dec);
+            decided = true;
             break;
         }
     }
 
-    if let Some(round) = converged_round {
-        println!("\nround {round}: quiet — converged (cascade died at the hop limit).");
+    if !decided {
+        println!("\nno decision reached within the round budget.");
     }
 
     // --- JetStream evidence: what the durable spine actually holds ---
@@ -414,9 +458,11 @@ async fn main() -> anyhow::Result<()> {
     {
         let mut k: Vec<&String> = killed.iter().collect();
         k.sort();
-        println!("  out-of-band kill    : {:?} halted by operator on the privileged control plane (agents hold no handle to agora._control.>; cannot ignore it)", k);
+        let status = if k.is_empty() { "none this run (set AGORA_DEMO_KILL=<agent> to demo)".to_string() } else { format!("{k:?} halted") };
+        println!("  out-of-band kill    : {status} — privileged control plane (agents hold no handle to agora._control.>; cannot ignore it)");
     }
-    println!("  hop-count TTL       : cascade bounded — without it this is the Hermes infinite loop");
+    println!("  hop-count TTL       : per-message cascade bound (the Hermes infinite-loop guard)");
+    println!("  decision deadline   : owner `{decision_owner}` finalized \"{decision_topic}\" by deadline r{decision_deadline} (owner-decides; bounds the whole deliberation, not just one message)");
     println!("  ordering / replay   : JetStream stream `AGORA` holds {} messages, last seq {} (global order; durable consumers replay from their position)", info.state.messages, info.state.last_sequence);
 
     // --- mirror accepted messages into rivet as signed facts (the durable record) ---

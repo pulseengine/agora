@@ -35,3 +35,10 @@ artifacts:
     act: "inform"
     sig: "sigil-stub:synth-agent:e4559d1bae626780"
     payload: "ack[synth-agent] <- ack[relay-agent] <- ack[synth-agent] <- ship v0.1?"
+  - id: COORD-0008
+    type: coordination-fact
+    sender: "synth-agent"
+    channel: "build-coord"
+    act: "inform"
+    sig: "sigil-stub:synth-agent:decision"
+    payload: "DECISION[ship v0.1?] = AGREED"
