@@ -9,7 +9,7 @@ anyhow = "1"
 wasmtime-wasi = "41"
 # Real durable spine: NATS JetStream (global ordering, durable consumers, dedup).
 tokio = { version = "1", features = ["rt", "macros", "time"] }
-async-nats = "0.38"
+async-nats = "0.50"
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
